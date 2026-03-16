@@ -1,0 +1,255 @@
+.index-layout{
+    position:absolute;
+    top:60px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+  }
+.header-layout {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 1000;
+    width: 100%;
+    height: 54px;
+  }
+  .header-layout .searchbox{
+    width: 89.33%;
+  }
+
+.title{
+    margin-top: 10px;
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    width: 100%;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.title-logo{
+    margin-left: 20px;
+    width: 35px;
+}
+
+.title-text{
+    line-height: 30px;
+    font-size: 20px;
+    margin-left: 5px;
+    font-weight: bold;
+    text-align: center;
+}
+
+.title-more{
+    position: absolute;
+    right: 20px;
+    height: 25px;
+}
+
+.searchbox{
+    display: flex;
+    height: 34px;
+    width: 89%;
+    padding: 0 20px;
+    background-color: rgba(0,0,0,0.2);
+    align-items: center;
+    justify-content: flex-start;
+    border-radius: 27.5px;
+    box-shadow: 0 5px 10px 0 rgba(0,0,0,0.05);
+}
+
+.searchbox .icon-search{
+    height: 50%;
+}
+
+.searchbox-form{
+    flex: 1;
+    margin-left: 6px;
+}
+
+.searchbox-input{
+    width: 100%;
+    background: none;
+    color: #fff;
+    font-size: 14px;
+}
+
+.searchbox-input::-webkit-input-placeholder{
+    color: #fff;
+}
+
+.searchbox-input::-moz-placeholder{
+    color: #fff;
+}
+
+.searchbox-input::-moz-placeholder{
+    color: #fff;
+}
+
+.searchbox-input::-ms-input-placeholder{
+    color: #fff;
+}
+
+input{
+  border:0px;
+}
+
+.page-header{
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    height: 30px;
+    border-bottom: 1px solid #eee;
+}
+
+.page-title{
+    position: absolute;
+    top: 5px;
+    width: 100%;
+    font-size: 35px;
+    text-align: center;
+}
+
+.enter-example {
+    display: flex;
+    overflow-x: scroll;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+}
+
+.enter-example-item {
+    margin-right: 2px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    height: 200px;
+    width: 150px;
+    background-color: #3495fc2b;
+    border-radius: 20px;
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+}
+
+.header-image {
+    width: 100%;
+    height: 100px; /* 根据需要调整头部图片的高度 */
+    object-fit: cover; /* 图片填充方式，可根据需要选择 */
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
+}
+
+.enter-example-nav {
+    margin-top: 8px;
+    font-size: 8px;
+    text-align: center;
+    word-break: break-all;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+}
+
+.enter-example-title {
+    width: 80%;
+    margin: 0 auto;
+    font-size: 12px;
+    position: relative;
+    font-weight: bold;
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+    word-break: break-all;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.enter-example-content {
+    width: 80%;
+    margin: 0 auto;
+    font-size: 10px;
+    position: relative;
+    justify-content: center;
+    align-items: center;
+    word-break: break-all;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.nav-link{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    font-size: 14px;
+    color: black;
+}
+
+.course{	
+    padding: 20px 20px 0 0;	
+}
+.course-list{	
+    display: flex;	
+    flex-wrap:wrap;	
+}
+.course-item{	
+    width:50%;	
+    padding:0 0 13px 20px;	
+}
+.course-pic{	
+    margin-bottom: 6px;	
+}
+.course-img{	
+    width:100%;	
+}
+.course-name{
+    line-height: 20px; 
+    margin-bottom: 4px; 
+    color: #333; 
+    font-size: 14px;
+}
+.course-content{
+    height: 40px;
+    line-height: 20px; 
+    margin-bottom: 4px; 
+    color: #333;
+    /*多行文字省略 */ 
+    overflow: hidden;
+    text-overflow: ellipsis; 
+    display: -webkit-box; 
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; 
+    white-space: normal; 
+    word-wrap: break-word;
+}
+
+.article-layout {
+    position:relative;
+    margin-top: 20px;
+    margin-bottom: 50px;
+}
+.article-nav{
+    font-size: 12px;
+    text-align: center;
+    position: absolute;
+    margin-top: 5px;
+    right: 10px;
+    color: #333;
+}
+
+.back-button{
+    position : fixed;
+    width: 120px;
+    height: 40px;
+    left: 0;
+    top: 0;
+}

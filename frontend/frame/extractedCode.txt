@@ -1,0 +1,6640 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="/favicon.ico">
+    <!-- Import style -->
+    <link rel="stylesheet" href="https:
+    <!-- Import Vue 3 -->
+    <script src="https:
+    <!-- Import component library -->
+    <script src="https:
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vite App</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
+import { createApp } from 'vue';
+import App from './App.vue';
+import ElementPlus from 'element-plus';
+import 'element-plus/dist/index.css';
+import VueAwesomeSwiper from 'vue-awesome-swiper';
+import 'swiper/css';
+import * as ElementPlusIconsVue from '@element-plus/icons-vue';
+import router from './router/index';
+import './assets/main.css';
+import Vant from 'vant';
+import 'vant/lib/index.css';
+import store from './components/store/index';
+const app = createApp(App);
+app.use(Vant);
+app.use(store);
+app.use(router);
+app.use(ElementPlus);
+app.use(VueAwesomeSwiper);
+for (const [key, components] of Object.entries(ElementPlusIconsVue)) {
+    app.component(key, components);
+}
+app.mount('#app');
+<template>
+  <div id="app">
+    <router-view></router-view>
+    <Tabbar/>
+    <van-back-top style="bottom: 65px; right: 27px;"/>
+  </div>
+</template>
+<script>
+import Tabbar from './components/TabBar.vue';
+export default {
+  name: 'App',
+  components: {
+    Tabbar
+  },
+  data() {
+    return {
+      currentTime: '', 
+      batteryLevel: 100 
+    };
+  },
+  created() {
+    const token = localStorage.getItem('token');
+    if (!token || this.tokenExpired(token)) {
+      this.$router.push('/login');
+    }
+  },
+  methods: {
+    tokenExpired(token) {
+      const decodedToken = this.decodeToken(token);
+      const expirationDate = new Date(decodedToken.exp * 1000); 
+      return expirationDate < new Date(); 
+    },
+    decodeToken(token) {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+      return JSON.parse(jsonPayload);
+    },
+  }
+}
+</script>
+<style>
+#app {
+  font-family: 'Avenir', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-align: center;
+  color: #2c3e50;
+  margin-top: 60px;
+}
+</style>
+<template>
+	<div class="totalPage">
+		<div style="margin-top: -5.7%;">
+		<router-link :to="{ name: 'Challenge', params: { id: this.$route.params.id } }">
+         <van-nav-bar title="挑战" left-text="返回" left-arrow/>
+		</router-link>
+		</div>
+		<!-- 进度条 -->
+		<van-progress style="margin-top: 5%;" :percentage="(currentQuestionIndex+1) / questions.length * 100" stroke-width="8" pivot-text="" color="#1989fa" />
+		<!-- 题目 -->
+		<div v-if="currentQuestionIndex < questions.length" class="question-card">
+			<van-card style="font-size: large; text-align: left; --van-card-title-line-height: auto; line-height: normal; --van-radio-size: none;"
+					  :title="`${currentQuestionIndex + 1}. ${questions[currentQuestionIndex].introduce}`"
+					  :class="{ 'bg-red': showAnswer[questions[currentQuestionIndex].id] && selectedAnswers[questions[currentQuestionIndex].id] !== questions[currentQuestionIndex].correctOption }">
+				<template #desc>
+					<van-radio-group v-model="selectedAnswers[questions[currentQuestionIndex].id]">
+						<van-radio style="line-height: 40px;" :name="'A'">A.{{ questions[currentQuestionIndex].optionA }}</van-radio>
+						<van-radio style="line-height: 40px;" :name="'B'">B.{{ questions[currentQuestionIndex].optionB }}</van-radio>
+						<van-radio style="line-height: 40px;" :name="'C'">C.{{ questions[currentQuestionIndex].optionC }}</van-radio>
+						<van-radio style="line-height: 40px;" :name="'D'">D.{{ questions[currentQuestionIndex].optionD }}</van-radio>
+					</van-radio-group>
+					<p class="answer" v-if="showAnswer[questions[currentQuestionIndex].id]">正确答案：<span class="correct">{{ questions[currentQuestionIndex].correctOption }}</span></p>
+				</template>
+				<!-- 可以增加其他题型 -->
+			</van-card>
+		</div>
+		<van-empty v-else />
+		<!-- 上一题和下一题按钮 -->
+        <div class="preNextButton">
+            <van-button style="float: right; width: 40%;" v-if="currentQuestionIndex < questions.length - 1" type="primary" block @click="nextQuestion">下一题</van-button>
+            <van-button style="float: left; width: 40%;" v-if="currentQuestionIndex > 0" type="primary" block @click="previousQuestion">上一题</van-button>
+		</div>
+    <!-- 提交答案按钮 -->
+		<van-button style="float: right; width: 40%; margin-right:10%" v-if="currentQuestionIndex === questions.length - 1" type="primary" block :disabled="isSubmitting" @click="onSubmit">{{ submitBtnText }}</van-button>
+	</div>
+</template>
+<script>
+	import axios from "axios";
+	import { showDialog } from 'vant';
+	import { getQuestions,sendWrongAnswer, sendRank,fetchQuestionsForThirdGrade } from '../api/api'; 
+	export default {
+	  data() {
+	    return {
+	      questions: [], 
+	      selectedAnswers: {}, 
+	      showAnswer: {}, 
+	      isVertical: false, 
+	      currentQuestionIndex: 0, 
+	      totalScore: 0, 
+	      isSubmitting: false, 
+		  wrongAnswers: [],
+		  rightRate: 0, 
+		  answerCount: 0, 
+	    };
+	  },
+	  computed: {
+	    submitBtnText() {
+	      return this.isSubmitting ? '已提交' : '提交'
+	    }
+	  },
+	  methods: {
+		async fetchQuestions() {
+			try {
+				console.log('题库'+this.$route.params.id);
+				const choose='题库'+this.$route.params.id;
+				this.questions = await fetchQuestionsForThirdGrade(choose);
+				this.initializeSelectedAnswers();
+				this.initializeShowAnswer();
+				this.showQuestion();
+			} catch (error) {
+				console.error('Failed to initialize questions:', error);
+      }
+		},
+		initializeSelectedAnswers() {
+			this.selectedAnswers = {};
+			this.questions.forEach(question => {
+			this.selectedAnswers[question.id] = null;
+			});
+		},
+		initializeShowAnswer() {
+			this.showAnswer = {};
+			this.questions.forEach(question => {
+			this.showAnswer[question.id] = false;
+			});
+		},
+	    onClickLeft() {
+	      this.$router.push("/challenge");
+	    },
+	    onSubmit() {
+			let totalCount = Object.keys(this.selectedAnswers).length;
+			let correctCount = 0;
+			this.isSubmitting = true;
+			for (const question of this.questions) {
+				const userAnswer = this.selectedAnswers[question.id];
+				if (userAnswer === question.correctOption) {
+				correctCount++;
+				} else {
+				this.wrongAnswers.push(question); 
+				}
+				this.answerCount++;
+				this.showAnswer[question.id] = true;
+			}
+			this.totalScore = (100 * correctCount / totalCount).toFixed(2);
+			this.rightRate = ( correctCount / totalCount).toFixed(2);
+			const message = `你选择了 ${totalCount} 道题，答对了 ${correctCount} 道题。总得分：${this.totalScore} 分。`;
+			showDialog({
+				title: "挑战结束",
+				message: message,
+			}).then(() => {
+				this.sendWrongAnswers();
+				this.sendrightRate();
+			});
+			this.isSubmitting = true;
+			for (const question of this.questions) {
+				this.showAnswer[question.id] = true;
+			}
+			},
+			async sendWrongAnswers() {
+				const token = localStorage.getItem('token');
+				for (const wrongAnswer of this.wrongAnswers) {
+					try {
+					const response = await sendWrongAnswer({
+					token: token,
+					id: wrongAnswer.id, 
+					name: wrongAnswer.name,
+					source: wrongAnswer.source,
+					point: wrongAnswer.point,
+					introduce: wrongAnswer.introduce,
+					optionA: wrongAnswer.optionA,
+					optionB: wrongAnswer.optionB,
+					optionC: wrongAnswer.optionC,
+					optionD: wrongAnswer.optionD,
+					correctOption: wrongAnswer.correctOption,
+					analyse: wrongAnswer.analyse,
+					});
+					if (response.status === 201) {
+						console.log('错题上传成功！');
+					} else {
+						console.error('错题上传失败:', error);
+					}
+				} catch (error) {
+					console.error('错题上传过程中发生错误:', error);
+				}
+			}
+		},
+		async sendrightRate() {
+			const token = localStorage.getItem('token');
+					try {
+					const response = await sendRank({
+						token: token,
+						rightRate: this.rightRate,
+						answerCount: this.answerCount
+					});
+					if (response.status === 201) {
+						console.log('准确率上传成功！');
+					} else {
+						console.error('准确率上传失败:', error);
+					}
+				} catch (error) {
+					console.error('准确率上传过程中发生错误:', error);
+			}
+		},
+  previousQuestion() {
+	  this.currentQuestionIndex--;
+      if(this.isSubmitting==false){
+        delete this.showAnswer[this.questions[this.currentQuestionIndex].id];
+      }
+	},
+	nextQuestion() {
+		this.showAnswer[this.questions[this.currentQuestionIndex].id] = true;
+		this.currentQuestionIndex++;
+	},
+	showQuestion() {
+	  const question = this.questions[this.currentQuestionIndex];
+	  this.isVertical = false;
+	},
+	},
+	mounted() {
+	this.fetchQuestions();
+	axios
+	.get()
+	.then((res) => {
+	this.questions = res.data.data;
+	    this.showQuestion();
+	  })
+	  .catch((error) => {
+	    console.log(error);
+	  });
+	},
+	};
+</script>
+<style>
+  .answer {
+	  color: red;
+	  margin-bottom: 0;
+	}
+  .question-card {
+    padding: 2rem;
+  }
+  .preNextButton{
+    margin-left: 10%;
+    margin-right: 10%;
+  }
+</style>
+import { createRouter, createWebHashHistory } from 'vue-router';
+import RegisterView from '../views/RegisterView.vue';
+import LoginView from '../views/LoginView.vue';
+import Home from '../views/Home.vue';
+import Category from '../views/Category.vue';
+import Chat from '../views/Chat.vue';
+import My from '../views/My.vue';
+import Lesson from '../components/home/views/Lesson.vue';
+import Article from '../components/home/views/Article.vue';
+import Expand from '../components/home/views/Expand.vue';
+import Question from '../components/home/views/Question.vue';
+import afterSearch from '../components/home/views/afterSearch.vue';
+import Search from '../components/home/views/Search.vue';
+import Nav11 from '../components/category/views/Nav11.vue';
+import Nav12 from '../components/category/views/Nav12.vue';
+import Nav13 from '../components/category/views/Nav13.vue';
+import Nav14 from '../components/category/views/Nav14.vue';
+import Nav21 from '../components/category/views/Nav21.vue';
+import Nav22 from '../components/category/views/Nav22.vue';
+import Nav23 from '../components/category/views/Nav23.vue';
+import Nav24 from '../components/category/views/Nav24.vue';
+import Nav31 from '../components/category/views/Nav31.vue';
+import Nav32 from '../components/category/views/Nav32.vue';
+import Nav33 from '../components/category/views/Nav33.vue';
+import Nav34 from '../components/category/views/Nav34.vue';
+import Nav1 from '../components/category/components/Nav1.vue';
+import Nav2 from '../components/category/components/Nav2.vue';
+import Nav3 from '../components/category/components/Nav3.vue';
+import articleDetail from '../components/article/views/articleDetail.vue';
+import expandDetail from '../components/article/views/expandDetail.vue';
+import a from '../components/a.vue';
+import b from '../components/b.vue';
+import Integral from '../views/Integral.vue';
+import Study from '../views/Study.vue';
+import Error from '../views/Error.vue';
+import Dynamics from '../views/Dynamics.vue';
+import Thumbs from '../views/Thumbs.vue';
+import Browse from '../views/Browse.vue';
+import Set from '../views/Set.vue';
+import Publish from '../views/Publish.vue';
+import Group from '../views/Group.vue';
+import Launch from '../views/Launch.vue';
+import PostDetail from '../views/PostDetail.vue';
+import Choose from '../views/Choose.vue';
+import Answer from '../views/Answer.vue';
+import Challenge from '../views/Challenge.vue';
+import Wrong from '../views/Wrong.vue';
+import Rank from '../views/Rank.vue';
+const routes = [
+  {
+    path: '/register',
+    name: 'Register',
+    component: RegisterView
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: LoginView
+  },
+  {
+    path: '/choose',
+    name: 'Choose',
+    component: Choose
+  },
+  {
+    path: '/',
+    name: 'Home',
+    component: Home,
+    meta:{
+      showTabbar:true
+    }
+  },
+  {
+    path: '/afterSearch',
+    name: 'afterSearch',
+    component: afterSearch,
+  },
+  {
+    path: '/Search',
+    name: 'Search',
+    component: Search,
+  },
+  {
+    path: '/lesson',
+    name: 'Lesson',
+    component: Lesson,
+  },
+  {
+    path: '/article',
+    name: 'Article',
+    component: Article,
+  },
+  {
+    path: '/article/:id',
+    name: 'ArticleDetail',
+    component: articleDetail
+  },
+  {
+    path: '/expand/:id',
+    name: 'expandDetail',
+    component: expandDetail
+  },
+  {
+    path: '/expand',
+    name: 'Expand',
+    component: Expand,
+  },
+  {
+    path: '/question',
+    name: 'Question',
+    component: Question,
+  },
+  {
+    path: '/category',
+    name: 'Category',
+    component: Category,
+    meta:{
+      showTabbar:true
+    },
+    redirect: '/Nav1',
+    children:[
+      {
+        path: '/Nav1',
+        name: 'Nav1',
+        meta: {
+          title: '课程',
+        },
+        component: Nav1,
+        redirect: '/Nav11',
+        children: [
+          {
+            path: '/Nav11',
+            name: 'Nav11',
+            component: Nav11
+          },
+          {
+            path: '/Nav12',
+            name: 'Nav12',
+            component: Nav12
+          },
+          {
+            path: '/Nav13',
+            name: 'Nav13',
+            component: Nav13
+          },
+          {
+            path: '/Nav14',
+            name: 'Nav14',
+            component: Nav14
+          },
+        ]
+      },
+      {
+        path: '/Nav2',
+        name: 'Nav2',
+        meta: {
+          title: '文章',
+        },
+        component: Nav2,
+        redirect: '/Nav21',
+        children: [
+          {
+            path: '/Nav21',
+            name: 'Nav21',
+            component: Nav21
+          },
+          {
+            path: '/Nav22',
+            name: 'Nav22',
+            component: Nav22
+          },
+          {
+            path: '/Nav23',
+            name: 'Nav23',
+            component: Nav23
+          },
+          {
+            path: '/Nav24',
+            name: 'Nav24',
+            component: Nav24
+          },
+        ]
+      },
+      {
+        path: '/Nav3',
+        name: 'Nav3',
+        meta: {
+          title: '动态',
+        },
+        component: Nav3,
+        redirect: '/Nav31',
+        children: [
+          {
+            path: '/Nav31',
+            name: 'Nav31',
+            component: Nav31
+          },
+          {
+            path: '/Nav32',
+            name: 'Nav32',
+            component: Nav32
+          },
+          {
+            path: '/Nav33',
+            name: 'Nav33',
+            component: Nav33
+          },
+          {
+            path: '/Nav34',
+            name: 'Nav34',
+            component: Nav34
+          },
+        ]
+      },
+    ]
+  },
+  {
+    path: '/chat',
+    name: 'Chat',
+    component: Chat,
+    meta:{
+      showTabbar:true
+    }
+  },
+  {
+    path: '/my',
+    name: 'My',
+    component: My,
+    meta:{
+      showTabbar:true
+    }
+  },
+  {
+    path: '/a/:id',
+    name: 'a',
+    component: a,
+  },
+  {
+    path: '/b',
+    name: 'b',
+    component: b,
+  },
+  {
+    path: '/integral',
+    name: 'Integral',
+    component: Integral
+  },
+  {
+    path: '/study',
+    name: 'Study',
+    component: Study
+  },
+  {
+    path: '/error',
+    name: 'Error',
+    component: Error
+  },
+  {
+    path: '/dynamics',
+    name: 'Dynamics',
+    component: Dynamics
+  },
+  {
+    path: '/thumbs',
+    name: 'Thumbs',
+    component: Thumbs
+  },
+  {
+    path: '/browse',
+    name: 'Browse',
+    component: Browse
+  },
+  {
+    path: '/set',
+    name: 'Set',
+    component: Set
+  },
+  {
+    path: '/publish',
+    name: 'Publish',
+    component: Publish
+  },
+  {
+    path: '/group',
+    name: 'Group',
+    component: Group
+  },
+  {
+    path: '/launch',
+    name: 'Launch',
+    component: Launch
+  },
+  {
+    path: '/post/:id',
+    name: 'PostDetail',
+    component: PostDetail
+  },
+    {
+    path: '/choose',
+    name: 'Choose',
+    component: Choose
+  },
+  {
+    path: '/answer:id',
+    name: 'Answer',
+    component: Answer,
+  },
+  {
+    path: '/challenge:id',
+    name: 'Challenge',
+    component: Challenge,
+  },
+  {
+    path: '/wrong:id',
+    name: 'Wrong',
+    component: Wrong,
+  },
+  {
+    path: '/rank:id',
+    name: 'Rank',
+    component: Rank,
+  },
+];
+const router = createRouter({
+  history: createWebHashHistory(),
+  routes
+});
+export default router;
+<template>
+  <div>
+    <van-tabbar v-model="active" v-if="$route.meta.showTabbar">
+      <van-tabbar-item to="/">
+        <span>主页</span>
+        <template #icon="props">
+          <img :src="props.active? icon.homeactive : icon.homeinactive" />
+        </template>
+      </van-tabbar-item>
+      <van-tabbar-item to="/category">
+        <span>分类</span>
+        <template #icon="props">
+          <img :src="props.active? icon.categoryactive : icon.categoryinactive" />
+        </template>
+      </van-tabbar-item>
+      <van-tabbar-item to="/chat">
+        <span>讨论</span>
+        <template #icon="props">
+          <img :src="props.active? icon.chatactive : icon.chatinactive" />
+        </template>
+      </van-tabbar-item>
+      <van-tabbar-item to="/my">
+        <span>我的</span>
+        <template #icon="props">
+          <img :src="props.active? icon.myactive : icon.myinactive" />
+        </template>
+      </van-tabbar-item>
+    </van-tabbar>
+  </div>
+</template>
+<script>
+import { ref } from 'vue';
+export default {
+  name: 'Tabbar',
+  setup() {
+    const active = ref(0);
+    const icon = {
+      homeactive: 'https:
+      homeinactive:'https:
+      categoryactive:'https:
+      categoryinactive:'https:
+      chatactive:'https:
+      chatinactive:'https:
+      myactive:'https:
+      myinactive:'https:
+    };
+    return {
+      icon,
+      active,
+    };
+  },
+};
+</script>
+<style scoped>
+</style>
+<template>
+  <div>
+<div>
+  <van-nav-bar title="注册" left-text="返回" left-arrow @click-left="goBack" />
+</div>
+  <div class="register-view">
+    <van-cell-group style="margin-top: 0px;">
+      <van-field
+        v-model="username"
+        required
+        label="用户名"
+        placeholder="请输入用户名"
+        :rules="[{
+          required: true,
+          message: '用户名不能为空'
+        },]"
+      />
+      <van-field
+        v-model="phone_number"
+        required
+        label="手机号"
+        placeholder="请输入手机号"
+        :rules="[
+          { required: true, message: '手机号不能为空' },
+          { pattern: /^1[3456789]\d{9}$/, message: '手机号码格式错误！' },
+        ]"
+      />
+      <van-field
+        v-model="password"
+        required
+        type="password"
+        label="密码"
+        placeholder="请输入密码"
+        :rules="[{ required: true, message: '密码不能为空' }]"
+      />
+      <van-field
+        v-model="password1"
+        required
+        type="password"
+        label="确认密码"
+        placeholder="请再次输入密码"
+        :rules="[{ required: true, message: '请再次输入密码' }]"
+      />
+      <!-- <van-field
+        v-model="sms"
+        center
+        clearable
+        label="短信验证码"
+        placeholder="请输入验证码"
+      >
+        <template #button>
+          <van-button
+            :disabled="!canSendSms"
+            size="small"
+            type="primary"
+            @click="sendSms"
+          >{{ smsButtonLabel }}</van-button>
+        </template>
+      </van-field> -->
+      <div class="flex-center">
+            <span>验证码</span>
+            <input type="text" v-model="value" placeholder="请输入验证码" class="input-view" id="text"
+               style="width: 95px;margin-left: 40px;margin-top: 5px;">
+            <div class="flex-center margin-t20" style="display: block;justify-content: center;">
+              <canvas id="canvas" width="150" height="43" @click="dj" 
+              style="border: 1px solid #ccc;margin-right:10px;width: 100px;">
+            </canvas>
+            <p @click="dj" style="color:#1989fa;font-size:13px;width:100%">看不清？换一个</p>
+        </div>
+        </div>
+    </van-cell-group>
+    <div style="margin: 16px">
+      <van-button
+        :disabled="!canSubmit || !isUsernameAvailable"
+        plain
+        block
+        type="primary"
+        native-type="submit"
+        @click="register"
+      >注册</van-button>
+    </div>
+  </div>
+</div>
+</template>
+<script>
+import { registerUser } from '../api/api';
+export default {
+  data() {
+    return {
+      username: '',
+      phone_number: '',
+      password: '',
+      password1: '',
+      sms: '',
+      smsTimer: null,
+      smsCountdown: 60,
+      isUsernameAvailable: true,
+      show_num: [],
+      value: '',
+      smsflag: false,
+    };
+  },
+  mounted() {
+        this.show_num=[];
+        this.draw();
+    },
+  computed: {
+    canSubmit() {
+      return this.password && this.password1 === this.password && this.phone_number && this.username;
+    },
+    canSendSms() {
+      return !this.smsTimer && this.phone_number;
+    },
+    smsButtonLabel() {
+      return this.smsTimer ? `${this.smsCountdown}秒后重发` : '发送验证码';
+    },
+  },
+  methods: {
+    goBack() {
+      this.$router.push('/login');
+    },
+    async register() {
+      this.sublim();
+      if (this.password !== this.password1) {
+        alert('两次密码不一致！');
+        return;
+      }
+      if (!this.smsflag) {
+        alert('验证码错误！');
+        return;
+      }
+      try {
+        const response = await registerUser({
+          username: this.username,
+          phone_number: this.phone_number,
+          password: this.password
+        });
+        if (response.status === 200) {
+          this.$router.push('/login');
+        } else {
+          alert('注册失败，请重试！');
+        }
+      } catch (error) {
+        console.error('注册过程中发生错误:', error);
+        alert('注册过程中发生错误，请稍后再试。');
+      }
+    },
+    sendSms() {
+      this.startCountdown();
+    },
+    startCountdown() {
+      if (!this.smsTimer) {
+        this.smsCountdown = 60;
+        this.smsTimer = setInterval(() => {
+          if (this.smsCountdown > 0) {
+            this.smsCountdown--;
+          } else {
+            clearInterval(this.smsTimer);
+            this.smsTimer = null;
+          }
+        }, 1000);
+      }
+    },
+    sublim() {
+            let [num1=0, type, num2=0] = this.show_num||[];
+            let NUM_MAP = {
+                '+': num1+num2,
+                '-': num1-num2,
+                '*': num1*num2
+            }
+            if(!this.value) return alert('请输入验证码！');
+            if(this.value == NUM_MAP[type]){
+                this.dj();
+                this.smsflag=true;
+            }else{
+                this.dj();
+                this.smsflag=false;
+            }
+        },
+        randomColor() {
+            var r = Math.floor(Math.random() * 256);
+            var g = Math.floor(Math.random() * 256);
+            var b = Math.floor(Math.random() * 256);
+            return "rgb(" + r + "," + g + "," + b + ")";
+        },
+        drawLine(context, canvas_width, canvas_height) {
+            for (var i = 0; i <= 30; i++) { 
+                context.strokeStyle = this.randomColor();
+                context.beginPath();
+                var x = Math.random() * canvas_width;
+                var y = Math.random() * canvas_height;
+                context.moveTo(x, y);
+                context.lineTo(x + 1, y + 1);
+                context.stroke();
+            }
+        },
+        drawStr(context, txt, x) {
+            var y = 20 + Math.random() * 8;
+            context.font = "bold 23px 微软雅黑";
+            context.fillStyle = this.randomColor(); 
+            context.fillText(txt, x, y);
+            return x + 10 + context.measureText(txt).width; 
+        },
+        drawNum(context, randomList, currentWidth) {
+            var j = Math.floor(Math.random() * randomList.length);
+            var txt = randomList[j];
+            this.show_num.push(txt);
+            return this.drawStr(context, txt, currentWidth);
+        },
+        draw(codeLength=3) { 
+            let canvas = document.getElementById("canvas");
+            let context = canvas.getContext("2d");
+            let canvas_width=canvas.width;
+            let canvas_height=canvas.height;
+            context.clearRect(0,0, canvas_width, canvas_height);
+            this.show_num=[];
+            let currentWidth=0;
+            currentWidth = this.drawNum(context, new Array(100).fill(null).map((v, i) => i), currentWidth);
+            currentWidth = this.drawNum(context, ['+', '-', '*'], currentWidth);
+            currentWidth = this.drawNum(context, new Array(10).fill(null).map((v, i) => i), currentWidth);
+            this.drawStr(context, '= ?', currentWidth)
+            this.drawLine(context, canvas_width, canvas_height); 
+        },
+        dj() {
+            this.value=''
+            this.draw();   
+        },
+  },
+};
+</script>
+<style scoped>
+.register-view {
+  padding: 2rem;
+}
+.input-placeholder-color::placeholder {
+    color: red;
+}
+</style>
+<template>
+  <div>
+  <div class="header">
+    <img src="@/assets/img/arrow-left.png" class="back-button" @click="goBack" alt="返回">
+    <h1>设置</h1>
+  </div>
+  <div class="settings-page">
+    <div class="settings-container">
+      <div v-if="showAccountManagement" class="settings-section">
+        <h2>账号管理</h2>
+        <div class="settings-actions">
+          <button class="green-button" @click="showChangePasswordModal = true">修改密码</button>
+          <button class="green-button" @click="logout">退出账号</button>
+        </div>
+      </div>
+      <div v-if="showPersonalization" class="settings-section">
+        <h2>个性化设置</h2>
+        <div class="settings-actions">
+          <label>选择颜色主题：</label>
+          <select v-model="selectedTheme" @change="applyTheme" class="theme-select">
+            <option value="light">浅色主题</option>
+            <option value="dark">深色主题</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <!-- 模态框内容 -->
+    <div v-if="showChangePasswordModal" class="modal-overlay" @click.self="showChangePasswordModal = false">
+      <div class="modal-content">
+        <h2>修改密码</h2>
+        <form @submit.prevent="submitChangePassword">
+          <div class="form-group">
+            <label for="currentPassword">手机号</label>
+            <input type="password" id="currentPassword" v-model="currentPassword" required>
+          </div>
+          <div class="form-group">
+            <label for="newPassword">新密码</label>
+            <input type="password" id="newPassword" v-model="newPassword" required>
+          </div>
+          <div class="form-group">
+            <label for="confirmPassword">确认新密码</label>
+            <input type="password" id="confirmPassword" v-model="confirmPassword" required>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="green-button">提交</button>
+            <button type="button" class="green-button" @click="showChangePasswordModal = false">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  </div>
+</template>
+<script>
+import axios from 'axios';
+import { changeKey,checkKey,user,GetID } from '../api/api'; 
+export default {
+  data() {
+    return {
+      showAccountManagement: true,
+      showPersonalization: true,
+      selectedTheme: 'light', 
+      showChangePasswordModal: false,
+      savedPassword:'',
+      currentPassword: '',
+      newPassword: '',
+      confirmPassword: ''
+    };
+  },
+  methods: {
+    goBack() {
+      this.$router.go(-1);
+    },
+    logout() {
+      console.log('处理退出登录逻辑');
+      this.$router.push("/login");
+    },
+    applyTheme() {
+      console.log('应用主题:', this.selectedTheme);
+    },
+    changePassword() {
+      this.showChangePasswordModal = true;
+    },
+    async submitChangePassword(){
+        if (this.newPassword !== this.confirmPassword) {
+          alert('新密码和确认新密码不一致');
+          return;
+        }
+        try{
+          const token = localStorage.getItem('token');
+          this.showChangePasswordModal = false;
+          this.CheckKey();
+          const response = await changeKey({
+            token: token,
+            current_password: this.currentPassword,
+            new_password: this.newPassword
+          });
+          console.log(response.status);
+          if (response.status === 200) {
+            alert('密码已成功更新');
+          } else {
+            alert(response.message || '密码更新失败');
+          }
+          this.showChangePasswordModal = false;
+        }catch (error) {
+        console.error(error);
+        alert('发生错误，请稍后再试');
+      }
+    },
+    async CheckKey(){
+        try{
+          const token = localStorage.getItem('token');
+          const response = await checkKey({
+            token: token,
+            current_password: this.currentPassword,
+            new_password: this.newPassword
+          });
+        }catch (error) {
+        console.error(error);
+        alert('验证原密码发生错误，请稍后再试');
+      }
+    }
+  }
+};
+</script>
+<style scoped>
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center; 
+  padding: 10px;
+  position: relative; 
+}
+.back-button {
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  position: absolute;
+  left: 20px; 
+  top:15px;
+}
+.header h1 {
+  font-size: 24px;
+  color: rgb(15, 73, 136); 
+}
+.settings-page { 
+  max-width: 600px; 
+  margin: 0 auto;
+  padding: 20px; 
+  background-color: rgba(106, 178, 254, 0.3); 
+  border: 1px solid rgb(106, 178, 254);
+  border-radius: 8px; 
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); 
+}
+.settings-container {
+  padding: 20px;
+  background-color: #ffffff; 
+  border-radius: 10px;
+  box-shadow: 0 2px 4px rgba(27, 61, 33, 0.1);
+  max-width: 600px;
+  width: 100%;
+}
+.settings-section {
+  margin-bottom: 20px;
+  text-align: center;
+}
+.settings-section h2 {
+  font-size: 20px;
+  margin-bottom: 10px;
+  color: rgb(42, 118, 204); 
+}
+.settings-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 10px;
+}
+.green-button {
+  padding: 10px 15px;
+  border: none;
+  border-radius: 6px;
+  background-color: rgba(56, 148, 251, 0.8); 
+  color: white;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.3s ease;
+  margin: 0 10px;
+}
+.green-button:hover,
+.green-button:focus {
+  background-color: rgb(42, 118, 204); 
+}
+label {
+  font-weight: bold;
+  font-size: 16px;
+  color: rgb(42, 118, 204);
+}
+.theme-select {
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid rgb(56, 148, 251); 
+  font-size: 14px;
+  color: #666;
+  margin-left: 10px;
+}
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.modal-content {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  width: 300px;
+  text-align: center;
+}
+.modal-content h2{
+  color:rgb(15, 73, 136);
+}
+.form-group {
+  margin-bottom: 15px;
+}
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+}
+.form-group input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.form-actions {
+  display: flex;
+  justify-content: space-between;
+}
+</style>
+<template>
+  <div>
+    <div class="header">
+      <!-- 返回按钮 -->
+      <img src="@/assets/img/arrow-left.png" class="back-button" @click="goBack" alt="返回">
+      <!-- 页面标题 -->
+      <h1>学习情况</h1>
+    </div>
+    <div class="learning-status">
+      <div class="content">
+        <section>
+          <div class="section-container">
+            <div class="subsection green-bg" style="text-align: center;"> 
+              <!-- 头像 -->
+              <img :src="avatarUrl"
+                style="margin-top:1rem;width:6rem;height:6rem"
+              />
+            </div>
+            <!-- 用户名 -->
+            <div class="subsection green-bg" style="text-align: center;">
+                <h3>{{ this.username }}</h3>
+            </div>
+            <div class="subsection green-bg" style="text-align: center;">
+              <h3>我的答题数：</h3>
+              <ul class="list">
+                <div v-for="(question) in questions" :key="question.userid">
+                <h3>{{ question.answerCount }}</h3>
+              </div>
+              </ul>
+            </div>
+            <div class="subsection green-bg" style="text-align: center;">
+              <h3>我的正确率：</h3>
+              <div v-for="(question) in questions" :key="question.userid">
+              <h3>{{question.rightRate}}</h3>
+            </div>
+            </div>
+            <!-- 错题集 -->
+            <div class="subsection green-bg" style="text-align: center;">
+              <span style="font-size:18px;color: rgb(42,118,204)">我的错题：</span>
+              <router-link :to="{ path: '/wrong1' }">
+                <span style="font-size:18px">查看详情</span>
+              </router-link>
+            </div>
+            <div class="subsection green-bg" style="text-align: center;">
+              <span style="font-size:18px;color:rgb(42,118,204);">当前排名：</span>
+              <router-link :to="{ path: '/rank1' }">
+                <span style="font-size:18px">查看详情</span>
+              </router-link>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</template>
+<script>
+import axios from 'axios';
+import { FetchData,user,GetID } from '../api/api';
+export default {
+  data() {
+    return {
+      wrongAnswers: [],
+      questions: [], 
+      loading: false, 
+      avatarUrl:'',
+      username:''
+    };
+  },
+  created() {
+    this.fetchQuestions(); 
+    this.fetchUserData();
+  },
+  methods: {
+    goBack() {
+      this.$router.push('/my');
+    },
+    async fetchUserData() {
+      try {
+      const usersData = await user();
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('Token not found in localStorage');
+      }
+      const userid= await GetID({
+        token: token,
+      });
+      const id= userid.data.userId
+      const filteredData = usersData.filter(item => parseInt(item.id) === id);
+      this.avatarUrl=filteredData[0].avatar
+      this.username=filteredData[0].username
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    }
+    },
+    async fetchQuestions() {
+      try {
+        this.loading = true; 
+		    const token = localStorage.getItem('token');
+        const response = await axios.get(`http:
+        const wrongData = response.data;
+        const displayedIds = new Set();
+        this.questions = wrongData.map(wrongAnswer => {
+          if (!displayedIds.has(wrongAnswer.id)) {
+            displayedIds.add(wrongAnswer.id);
+            return wrongAnswer;
+          }
+        }).filter(question => question); 
+      } catch (error) {
+        console.error('Failed to fetch questions:', error);
+      } finally {
+        this.loading = false; 
+      }
+    },
+	async created() {
+    try {
+      this.loading = true; 
+      const token = localStorage.getItem('token');
+      this.questions = await FetchData(token); 
+    } catch (error) {
+      console.error('Failed to fetch questions:', error);
+    } finally {
+      this.loading = false; 
+    }
+  }
+  },
+};
+</script>
+<style scoped>
+.learning-status {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  background-color: #f9f9f9; 
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center; 
+  padding: 10px;
+  position: relative;
+}
+.back-button {
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  position: absolute;
+  left: 20px; 
+  top: 15px;
+}
+.header h1 {
+  color: rgb(15,73,136);
+  font-size: 24px;
+  flex: 1;
+  text-align: center;
+}
+.content {
+  background-color: #fff; 
+  padding: 20px;
+  border: 1px solid rgb(56,148,251,0.5);
+  border-radius: 5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.section-container {
+  gap: 20px;
+}
+.subsection.green-bg {
+  background-color: rgb(106,178,254,0.1); 
+  padding: 10px;
+  text-align: left;
+}
+.subsection h3 {
+  margin-top: 0;
+  color: rgb(42,118,204); 
+}
+.subsection h2 {
+  margin-top: 0;
+  color: rgb(42,118,204); 
+}
+.course-details h4 {
+  font-size: 14px;
+  color: rgb(56,148,251);
+}
+.list {
+  list-style-type: none;
+  padding: 0;
+}
+.list li {
+  margin-bottom: 10px;
+}
+.course-item {
+  display: flex;
+}
+.course-item img {
+  width: 100px;
+  height: 100px;
+  margin-right: 10px;
+}
+.course-details {
+  display: flex;
+  flex-direction:row;
+  gap: 10px; 
+}
+.article-item {
+  margin-bottom: 20px;
+}
+.article-item h4 {
+  margin-top: 0;
+  color: rgb(56,148,251);
+}
+</style>
+<template>
+  <div>
+    <!-- 排行榜标题 -->
+    <van-nav-bar title="排行榜" left-text="返回" left-arrow @click-left="goBack" />
+    <div style="margin-top: 0%;">
+      <van-tabs v-model="currentTab" @change="onTabChange" title-active-color="#1989fa">
+        <van-tab title="正确率">
+          <van-list v-if="rankings.length > 0">
+            <div class="rank-item" v-for="(user, index) in rankings" :key="user.id">
+              <van-cell style="font-size: large; --van-cell-label-font-size: 1rem; "
+                :title="`${user.username}`"
+                :label="`正确率：${formattedRightRate(user.rightRate)}`"
+                center
+              >
+                <template #right-icon>
+                  <span v-if="index >= 3" class="rank-number">{{ index + 1 }}</span>
+                  <van-icon v-else-if="index === 0" name="medal" size="40" color="#FFD700"/>
+                  <van-icon v-else-if="index === 1" name="medal" size="40" color="#C0C0C0"/>
+                  <van-icon v-else-if="index === 2" name="medal" size="40" color="#CD7F32"/>
+                </template>
+              </van-cell>
+            </div>
+          </van-list>
+        </van-tab>
+        <van-tab title="答题数">
+          <van-list v-if="rankings.length > 0">
+            <div class="rank-item" v-for="(user, index) in rankings" :key="user.id">
+              <van-cell style="font-size: large; --van-cell-label-font-size: 1rem; "
+                :title="`${user.username}`"
+                :label="`答题数：${user.answerCount}`"
+                center
+              >
+                <template #right-icon>
+                  <span v-if="index >= 3" class="rank-number">{{ index + 1 }}</span>
+                  <van-icon v-else-if="index === 0" name="medal" size="40" color="#FFD700"/>
+                  <van-icon v-else-if="index === 1" name="medal" size="40" color="#C0C0C0"/>
+                  <van-icon v-else-if="index === 2" name="medal" size="40" color="#CD7F32"/>
+                </template>
+              </van-cell>
+            </div>
+          </van-list>
+        </van-tab>
+      </van-tabs>
+    </div>
+  </div>
+</template>
+<script>
+import axios from "axios";
+import { fetchRankings } from '../api/api';
+export default {
+  name: 'RankingPage',
+  components: {},
+  data() {
+    return {
+      currentTab: 0,
+      rankings: [],
+      sortType: 'rightRate', 
+    };
+  },
+  methods: {
+    goBack() {
+      this.$router.go(-1);
+    },
+    formattedRightRate(rate) {
+      return parseFloat(rate).toFixed(2);
+    },
+    onTabChange(name) {
+      if (name === 0) {
+        this.sortType = 'rightRate'; 
+      } else if (name === 1) {
+        this.sortType = 'answerCount'; 
+      }
+      this.initializeRankings(); 
+    },
+    async initializeRankings() {
+      try {
+        this.rankings = await fetchRankings(this.sortType);
+      } catch (error) {
+        console.error('Failed to initialize rankings:', error);
+      }
+    },
+  },
+  mounted() {
+    this.initializeRankings();
+  },
+};
+</script>
+<style scoped>
+.avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+}
+.rank-number {
+  font-size: 25px;
+  margin-right: 20px;
+  line-height: 1; 
+}
+</style>
+<template>
+  <div class="post-form-container">
+    <h2>发表动态</h2>
+    <div class="post-form">
+      <form @submit.prevent="addPost">
+        <textarea v-model="content" placeholder="请输入动态内容"></textarea>
+        <div class="publish-actions">
+          <button class="submit" type="submit">发布</button>
+          <button class="cancel" type="button" @click="$router.push('/chat')">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</template>
+<script>
+import axios from 'axios';
+import { addPost } from '../api/api';
+export default {
+  data() {
+    return {
+      content: ''
+    };
+  },
+  methods: {
+    async addPost() {
+      if (this.content.trim()) {
+        try {
+          const token = localStorage.getItem('token');
+          if (!token) {
+            throw new Error('Token not found in localStorage');
+          }
+          const response = await addPost({
+            token: token,
+            content: this.content
+          });
+          this.$router.push('/chat');
+        } catch (error) {
+          console.error('Error adding post:', error.message);
+        }
+      }
+    },
+  }
+};
+</script>
+<style scoped>
+.post-form-container {
+  padding: 10px; 
+  box-sizing: border-box; 
+}
+h2 {
+  font-size: 26px;
+  color: rgb(15,73,136);
+  text-align: center;
+  margin-top:40px;
+}
+.post-form {
+  max-width: 600px;
+  margin: auto;
+  padding: 20px;
+  background-color: rgba(106, 178, 254, 0.2);
+  border: 1px solid rgba(106, 178, 254, 0.5);
+  border-radius: 5px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  position: relative;
+}
+textarea {
+  width: 100%;
+  height: 350px;
+  padding: 20px;
+  font-size: 16px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  margin-top: 10px;
+  text-align: left;
+}
+.publish-actions {
+  position: absolute;
+  bottom: -40px; 
+  right: 15px;
+  display: flex;
+  gap: 10px;
+}
+.cancel {
+  background-color: rgb(106,178,254);
+  color: white;
+  padding: 5px 20px;
+  border: none;
+  cursor: pointer;
+  border-radius: 5px;
+}
+.submit {
+  background-color: rgb(56,148,251);
+  color: white;
+  padding: 5px 20px;
+  border: none;
+  cursor: pointer;
+  border-radius: 5px;
+}
+.submit:hover {
+  background-color: rgb(42,118,204);
+}
+.cancel:hover {
+  background-color: rgb(56,148,251);
+}
+</style>
+<template>
+  <div class="post-detail">
+    <div class="header">
+      <img src="@/assets/img/arrow-left.png" class="back-button" @click="goBack" alt="返回">
+      <h1>帖子详情</h1>
+    </div>
+    <div class="post">
+      <div class="post-header">
+        <img :src="getUser(post.userid).avatar" class="round-image">
+        <div class="post-user-info">
+          <p class="post-user">{{ getUser(post.userid).username }}</p>
+          <p class="post-date">{{ formatDate(post.createdAt) }}</p>
+        </div>
+      </div>
+      <div class="post-content">
+        <p>{{ post.content }}</p>
+        <div class="post-actions">
+          <span class="action-button" @click="toggleLike(post)">
+            <img :src="isLiked(post) ? likedIcon : notLikedIcon" class="button" alt="Like Button">
+          </span>
+          <span>{{ post.likes }} 点赞</span>
+          <span class="action-button" @click="toggleCommentInput">
+            <img src="/src/assets/img/pl.png" class="button">
+          </span>
+          <span>{{ getComments(post.id).length }} 评论</span>
+        </div>
+      </div>
+    </div>
+    <div class="comments-section">
+      <div v-if="post.showCommentInput" class="comment-input">
+        <textarea v-model="post.newComment" placeholder="请输入评论内容"></textarea>
+        <div class="button-container">
+          <button @click="addComment">提交评论</button>
+        </div>
+      </div>
+      <div v-for="comment in getComments(post.id)" :key="comment.id" class="comment">
+        <div class="comment-header">
+          <img :src="getUser(comment.userid).avatar" class="round-image">
+          <div class="comment-user-info">
+            <p class="comment-user">{{ getUser(comment.userid).username }}</p>
+            <p class="comment-date">{{ formatDate(comment.createdAt) }}</p>
+          </div>
+        </div>
+        <div class="comment-content">
+          <p>{{ comment.content }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+<script>
+import likedIcon from '../assets/img/z_filled.png';
+import notLikedIcon from '../assets/img/z.png';
+import { getPostById,comments,user,addComment,PostAddLike,PostCancelLike,postlike,PostAddClick } from '../api/api';
+export default {
+  name: 'PostDetail',
+  data() {
+    return {
+      post: {},
+      comments: [],
+      users: [],
+      likelist:[],
+      likedIcon,
+      notLikedIcon
+    };
+  },
+  async created() {
+        const articleId = this.$route.params.id;
+        try {
+            this.post = await getPostById(articleId);
+            this.comments = await comments();
+            this.users = await user();
+            this.likelist = await postlike();
+            this.AddClick(this.post);
+        } catch (error) {
+            console.error(error);
+        }
+    },
+  methods: {
+    async AddClick(post){
+      const token = localStorage.getItem('token');
+      if (!token) {
+         throw new Error('Token not found in localStorage');
+      }
+      try {
+        await PostAddClick({ token, postid: post.id });
+      } catch (error) {
+        console.error(error);
+      }
+    },
+    isLiked(post) {
+      return this.likelist.some(like => like.postid === post.id);
+    },
+    goBack() {
+      this.$router.go(-1);
+    },
+    async toggleLike(post) {
+      const token = localStorage.getItem('token');
+      if (!token) {
+         throw new Error('Token not found in localStorage');
+      }
+      try {
+        let isLiked = this.likelist.some(like => like.postid === post.id);
+        if (isLiked) {
+          await PostCancelLike({ token, postid: post.id });
+          post.likes -= 1;
+          this.likelist = this.likelist.filter(like => like.postid !== post.id);
+        } else {
+          await PostAddLike({ token, postid: post.id });
+          post.likes += 1;
+          this.likelist = [...this.likelist, { postid: post.id }];
+        }
+        post.liked = !post.liked;
+      } catch (error) {
+        console.error('Error toggling like:', error);
+      }
+    },
+    toggleCommentInput() {
+      this.post.showCommentInput = !this.post.showCommentInput;
+    },
+    async addComment() {
+      if (this.post.newComment.trim()) {
+        try {
+          const token = localStorage.getItem('token');
+          if (!token) {
+            throw new Error('Token not found in localStorage');
+          }
+          const response = await addComment({
+            token: token,
+            postid: this.post.id,
+            content: this.post.newComment
+          });
+          window.location.reload();
+        } catch (error) {
+          console.error('Error adding comment:', error.message);
+        }
+      }
+    },
+    getUser(userid) {
+      return this.users.find(user => user.id === userid) || {};
+    },
+    getComments(postid) {
+      return this.comments.filter(comment => comment.postid === postid);
+    },
+    formatDate(dateString) {
+      const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+      return new Date(dateString).toLocaleDateString('zh-CN', options);
+    }
+  }
+};
+</script>
+<style scoped>
+.post-detail {
+  padding: 20px;
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center; 
+  padding: 10px;
+  position: relative; 
+}
+.back-button {
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  position: absolute;
+  left: 20px; 
+  top:15px;
+}
+.header h1 {
+  font-size: 24px;
+  color: rgb(15,73,136);
+  flex: 1;
+  text-align: center;
+}
+.button {
+  width: 20px;
+  height: 20px;
+  overflow: hidden;
+  margin-right: 10px;
+}
+.round-image {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin-right: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.post {
+  max-width: 800px;
+  margin: 20px auto;
+  padding: 20px;
+  background-color: rgb(106,178,254,0.2);
+  border: 1px solid rgb(106,178,254);
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+.post-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.post-user-info {
+  margin-left: 10px; 
+}
+.post-content {
+  font-size: 18px;
+  text-align: center; 
+  color: rgb(15,73,136);
+}
+.post-user {
+  font-size: 18px;
+  font-weight: bold;
+  text-align: left;
+  color: rgb(15,73,136);
+}
+.post-date {
+  font-size: 12px;
+  color: rgb(100, 100, 100);
+}
+.post-actions {
+  display: flex;
+  justify-content: center;
+  color: #666;
+  margin-top: 10px;
+}
+.post-actions span {
+  margin-right: 5px;
+}
+.comments-section {
+  margin-top: 20px;
+}
+.comment {
+  margin-bottom: 15px;
+}
+.comment-header {
+  display: flex;
+  align-items: center;
+}
+.comment .round-image {
+  width: 40px;
+  height: 40px;
+  margin-right: 10px;
+}
+.comment-user-info {
+  margin-left: 10px; 
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.comment-content {
+  margin-top: 10px; 
+  width: 90%;
+  height:100%;
+  background-color: rgb(106,178,254,0.1);
+  padding: 20px;
+  border-radius: 8px;
+  text-align:left; 
+}
+.comment-user {
+  font-size: 16px;
+  text-align: left;
+  font-weight: bold;
+  color: rgb(15,73,136);
+}
+.comment-date {
+  color: #666;
+  font-size: 12px;
+}
+.comment-input {
+  margin-top: 10px;
+}
+.comment-input textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  resize: vertical;
+  margin-bottom: 10px;
+}
+.button-container {
+  display: flex;
+  justify-content: flex-end;
+}
+.comment-input button {
+  padding: 6px 14px;
+  background-color: rgb(56,148,251);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+</style>
+<template>
+  <div class="page-wrapper">
+    <div style="width: 100%;">
+      <!-- 头部信息 -->
+      <div class="head">
+        <img :src="avatarUrl" class="round-image">
+        <div class="user-info">
+          <p class="username">{{ username }}</p>
+          <p class="signature">{{ signature }}</p>
+        </div>
+        <img src="../assets/img/bj.png" class="image" @click="openEditModal">
+        <!-- 编辑模态框 -->
+        <div class="edit-modal" v-if="showEditModal">
+          <div class="modal-content">
+            <h2>编辑信息</h2>
+            <label>头像:</label>
+            <!-- 显示当前头像 -->
+            <img :src="editAvatarUrl" class="round-image" @click="handleAvatarUpload">
+            <!-- 上传新头像 -->
+            <input type="file" style="display: none;" ref="avatarInput" @change="handleFileUpload">
+            <label>用户名:</label>
+            <input type="text" v-model="editUsername">
+            <label>个性签名:</label>
+            <input type="text" v-model="editSignature">
+            <div>
+              <button @click="saveChanges()">保存</button>
+              <button @click="cancelEdit">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 主要内容区域 -->
+      <div class="page-container">
+        <div class="content">
+          <p class="title" style="margin-left: 10px">我的功能</p>
+        </div>
+        <div class="image-container">
+          <div class="image-item">
+            <router-link :to="{ path: '/integral' }">
+              <img src="../assets/img/jf.png" class="round-image1">
+            </router-link>
+            <div class="image-caption">积分显示</div>
+          </div>
+          <div class="image-item">
+            <router-link :to="{ path: '/study' }">
+              <img src="../assets/img/xuexi.png" class="round-image1">
+            </router-link>
+            <div class="image-caption">学习情况</div>
+          </div>
+          <div class="image-item">
+            <router-link :to="{ path: '/error' }">
+              <img src="../assets/img/ctj.png" class="round-image1">
+            </router-link>
+            <div class="image-caption">错题集</div>
+          </div>
+          <div class="image-item">
+            <router-link :to="{ path: '/dynamics' }">
+              <img src="../assets/img/dt.png" class="round-image1">
+            </router-link>
+            <div class="image-caption">个人动态</div>
+          </div>
+        </div>
+      </div>
+      <!-- 更多功能区域 -->
+      <div class="page-container">
+        <div class="content">
+          <p class="title" style="margin-left: 10px">更多功能</p>
+        </div>
+        <div class="image-container1">
+          <router-link :to="{ path: '/thumbs' }">
+            <div class="image-item-left-align">
+              <img src="../assets/img/dzjl.png" class="round-image2">
+              <div class="image-caption-right">点赞记录</div>
+              <img src="../assets/img/arrow-right.png" class="image1">
+            </div>
+          </router-link>
+          <hr>
+          <router-link :to="{ path: '/browse' }">
+            <div class="image-item-left-align">
+              <img src="../assets/img/lljl.png" class="round-image2">
+              <div class="image-caption-right">浏览记录</div>
+              <img src="../assets/img/arrow-right.png" class="image1">
+            </div>
+          </router-link>
+          <hr>
+          <router-link :to="{ path: '/set' }">
+            <div class="image-item-left-align">
+              <img src="../assets/img/sz.png" class="round-image2">
+              <div class="image-caption-right">设置</div>
+              <img src="../assets/img/arrow-right.png" class="image1">
+            </div>
+          </router-link>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+<script>
+import axios from 'axios';
+import { addtext,user,GetID } from '../api/api';
+export default {
+  name: 'MyPage',
+  data() {
+    return {
+      avatarUrl: '',
+      username: '',
+      signature: '',
+      group: '',
+      showEditModal: false,
+      editUsername: '',
+      editSignature: '',
+      editAvatarUrl: '',
+    };
+  },
+  created() {
+    this.fetchUserData();
+  },
+  methods: {
+    async fetchUserData() {
+      try {
+      const usersData = await user();
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('Token not found in localStorage');
+      }
+      const userid= await GetID({
+        token: token,
+      });
+      const id= userid.data.userId
+      const filteredData = usersData.filter(item => parseInt(item.id) === id);
+      this.avatarUrl=filteredData[0].avatar
+      this.editAvatarUrl=filteredData[0].avatar
+      this.username=filteredData[0].username
+      this.editUsername=filteredData[0].username
+      this.signature=filteredData[0].text
+      this.editSignature=filteredData[0].text
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    }
+    },
+    openEditModal() { 
+      this.showEditModal = true;
+    },
+    async saveChanges() {
+      console.log('Save button clicked');
+      if (this.editUsername.trim()||this.editSignature.trim()) {
+        try {
+          const token = localStorage.getItem('token');
+          if (!token) {
+            throw new Error('Token not found in localStorage');
+          }
+          const response = await addtext({
+            token: token,
+            username: this.editUsername,
+            text: this.editSignature
+          });
+          window.location.reload();
+        } catch (error) {
+          console.error('Error adding comment:', error.message);
+        }
+      }
+    },
+    cancelEdit() {
+      this.showEditModal = false;
+    },
+    handleAvatarUpload() {
+      this.$refs.avatarInput.click();
+    },
+    handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          this.editAvatarUrl = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    },
+  },
+};
+</script>
+<style scoped>
+.page-wrapper {
+  display: flex;
+  justify-content: center;
+  height: 100vh; 
+  padding: 5%;
+  background-color: #ffffff; 
+}
+.head {
+  margin-bottom: 40px;
+  display: flex;
+  align-items: center;
+}
+.user-info {
+  margin-left: 10px;
+  display: inline-block;
+}
+.username {
+  font-size: 20px;
+  font-weight: bold;
+  color: rgb(15, 73, 136);
+  margin-bottom: 5px;
+}
+.signature {
+  font-size: 14px;
+  color: rgb(15, 73, 136);
+  word-wrap: break-word; 
+  word-break: break-all; 
+}
+.round-image {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin-right: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.image {
+  z-index: 99;
+  width: 20px;
+  height: 20px;
+}
+.page-container {
+  max-width: 800px;
+  margin: 20px auto;
+  padding: 5px; 
+  background-color: rgba(106, 178, 254, 0.3);
+  border: 1px solid rgba(106, 178, 254, 0.5);
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+.content {
+  overflow: hidden;
+}
+.title {
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: rgba(15, 73, 136, 0.6);
+}
+.image-container {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+.round-image1 {
+  width: 45px;
+  height: 45px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin: 0 10px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.image-item {
+  text-align: center;
+  width: 25%;
+}
+.image-caption {
+  font-size: 14px;
+  color: rgb(69, 70, 71);
+  margin-top: 5px;
+}
+.image-item-left-align {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.image-container1 {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.round-image2 {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin-right: 10px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.image-caption-right {
+  font-size: 14px;
+  color: rgb(69, 70, 71);
+}
+.image1 {
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+}
+hr {
+  border: none;
+  border-top: 1px solid rgba(106, 178, 254, 0);
+  margin: 10px 0;
+}
+.edit-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(64, 89, 118, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.modal-content {
+  background-color: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  width: 300px;
+}
+.modal-content h2 {
+  color: rgb(15, 73, 136);
+  font-size: 20px;
+  margin-bottom: 10px;
+}
+.modal-content label {
+  color: rgb(69, 70, 71);
+  font-size: 14px;
+  margin-bottom: 5px;
+  display: block;
+}
+.modal-content input {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 10px;
+  border: 1px solid rgb(69, 70, 71);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.modal-content button {
+  padding: 8px 16px;
+  margin-right: 10px;
+  border: none;
+  border-radius: 4px;
+  background-color: rgb(56, 148, 251);
+  color: #fff;
+  cursor: pointer;
+}
+.modal-content button:hover {
+  background-color: rgb(42, 118, 204);
+}
+.radio-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.radio-group label {
+  margin-right: 20px;
+  display: inline-flex;
+}
+.radio-group input[type="radio"] {
+  margin-right: 5px;
+}
+</style>
+<template>
+  <div class="login-view" style="margin-top: 40px;">
+    <img src="../assets/img/jl.png"
+      style="margin-top:1rem;width:6rem;height:6rem"
+    />
+    <div style="margin-top: 16%;">
+      <van-tabs v-model="active" title-active-color="#1989fa">
+        <van-tab title="手机号登录">
+          <van-field
+            v-model="phone_number"
+            required
+            label="手机号"
+            placeholder="请输入手机号"
+            :rules="[
+              { required: true },
+              { pattern: /^1[3456789]\d{9}$/, message: '手机号码格式错误！' },
+            ]"
+          >
+          </van-field>
+          <van-field
+            v-model="sms"
+            center
+            clearable
+            label="短信验证码"
+            placeholder=""
+          >
+            <template #button>
+              <van-button plain size="small" type="primary" style="float: right">发送验证码</van-button>
+            </template>
+          </van-field>
+          <div style="margin-top: 7%;">
+            <van-checkbox v-model="smsChecked" icon-size="20px">
+              我已阅读同意
+              <router-link :to="{ path: '/login' }">
+                <a class="app-title">用户协议</a>
+              </router-link>和
+              <router-link :to="{ path: '/login' }">
+                <a class="app-title">隐私条款</a>
+              </router-link>
+            </van-checkbox>
+          </div>
+          <div style="margin-top: 5%;">
+            <van-button plain block type="primary" native-type="submit" @click="smsLogin">登录</van-button>
+          </div>
+          <div class="reg" style="margin-top: 5%;">
+            <router-link :to="{ path: '/register' }">
+            <a class="app-title">没有账号？立即注册</a>
+          </router-link>
+          </div>
+        </van-tab>
+        <van-tab title="密码登录">
+          <van-form>
+            <van-field
+              v-model="username"
+              name="用户名"
+              label="用户名"
+              placeholder="请输入用户名"
+              :rules="[{ required: true, message: '未输入用户名！' }]"
+            >
+            </van-field>
+            <van-field
+              v-model="password"
+              type="password"
+              name="密码"
+              label="密码"
+              placeholder="请输入密码"
+              :rules="[{ required: true, message: '未输入密码' }]"
+            >
+            </van-field>
+            <div style="margin-top: 7%;">
+              <van-checkbox v-model="keyChecked" icon-size="20px">
+                我已阅读同意
+                <router-link :to="{ path: '/login' }">
+                  <a class="app-title">用户协议</a>
+                </router-link>和
+                <router-link :to="{ path: '/login' }">
+                  <a class="app-title">隐私条款</a>
+                </router-link>
+              </van-checkbox>
+            </div>
+            <div style="margin-top: 5%;">
+              <van-button plain block type="primary" native-type="submit" @click="keyLogin">登录</van-button>
+            </div>
+            <div class="reg" style="margin-top: 5%;">
+              <router-link :to="{ path: '/register' }">
+                <a class="app-title">没有账号？立即注册</a>
+              </router-link>
+            </div>
+          </van-form>
+        </van-tab>
+      </van-tabs>
+    </div>
+  </div>
+</template>
+<script>
+import { loginUser, getUsers } from '../api/api'; 
+export default {
+  data() {
+    return {
+      username: '',
+      password: '',
+      phone_number: '',
+      sms: '',
+      smsChecked: true,
+      keyChecked: true
+    };
+  },
+  methods: {
+    async keyLogin() {
+    if (!this.keyChecked) {
+      alert('请勾选同意用户协议和隐私条款');
+      return;
+    }
+    try {
+      const response = await loginUser({
+        username: this.username,
+        password: this.password
+      });
+      console.log('Response from loginUser:', response);
+      if (response.status === 200) {
+        const token = response.data.token;
+        localStorage.setItem('token', token);
+        this.$router.push('/');
+      } else {
+        alert('用户名或密码错误');
+      }
+    } catch (error) {
+      console.error('登录时发生错误:', error);
+      alert('登录过程中发生错误，请稍后再试');
+    }
+  },
+    async smsLogin() {
+      if (!this.smsChecked) {
+        alert('未勾选同意用户协定和隐私条款');
+        return;
+      }
+      try {
+        const response = await loginUser({
+          phone_number: this.phone_number,
+          sms: this.sms
+        });
+        if (response.status === 200) {
+          this.$router.push('/');
+        } else {
+          alert('验证码错误');
+        }
+      } catch (error) {
+        console.error('Error during login:', error);
+        alert('An error occurred while logging in');
+      }
+    }
+  }
+};
+</script>
+<style scoped>
+a {
+  color: #3495fc;
+}
+.login-view {
+  padding: 3rem;
+}
+</style>
+<template>
+  <div class="group-form-container">
+    <div class="group-form">
+      <h2>创建新群组</h2>
+      <form @submit.prevent="createGroup">
+        <label for="groupName">群组名称:</label>
+        <input type="text" id="groupName" v-model="groupName" required>
+        <div class="button-group">
+          <button type="submit" class="create-button">创建群组</button>
+          <button type="button" class="cancel-button" @click="$router.push('/chat')">取消</button>
+        </div>
+      </form>
+      <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
+    </div>
+  </div>
+</template>
+<script>
+import axios from 'axios';
+import { createGroup } from '../api/api';
+export default {
+  data() {
+    return {
+      groupName: '',
+      errorMessage: ''
+    };
+  },
+  methods: {
+    async createGroup() {
+      if (this.groupName.trim()) {
+        try {
+          const token = localStorage.getItem('token');
+          if (!token) {
+            throw new Error('Token not found in localStorage');
+          }
+          const response = await createGroup({
+            token: token,
+            group_name: this.groupName
+          });
+          console.log('Group created successfully:', response.data);
+          this.$router.push('/chat');
+          this.groupName = '';
+          this.errorMessage = '';
+        } catch (error) {
+          console.error('Error creating group:', error.message);
+          this.errorMessage = '创建群组失败，请重试。';
+        }
+      } else {
+        this.errorMessage = '群组名称不能为空。';
+      }
+    }
+  }
+};
+</script>
+<style scoped>
+.group-form-container {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start; 
+  min-height: 100vh;
+  padding: 20px; 
+  box-sizing: border-box; 
+  margin-top: 20px; 
+}
+.group-form {
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 20px;
+  background-color: rgb(106,178,254,0.2);
+  border: 1px solid rgb(106,178,254,0.5);
+  border-radius: 5px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+.group-form h2 {  
+  font-size: 24px;
+  text-align: center;
+  margin-bottom: 0px;
+  color: rgb(15,73,136);
+}
+.group-form form {
+  display: flex;
+  flex-direction: column;
+  margin-top: 20px;
+}
+.group-form label {
+  margin-bottom: 10px;
+  font-size: 18px;
+  color: rgb(56,148,251);
+}
+.group-form input[type="text"] {
+  padding: 8px;
+  font-size: 16px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  width: 100%;
+  margin-bottom: 20px;
+}
+.button-group {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+.create-button {
+  padding: 10px;
+  font-size: 16px;
+  background-color: rgb(56,148,251);
+  color: white;
+  border: none;
+  cursor: pointer;
+  flex: 1;
+  margin-right: 10px;
+}
+.create-button:hover {
+  background-color: rgb(42,118,204);
+}
+.cancel-button {
+  padding: 10px;
+  font-size: 16px;
+  background-color: rgb(106,178,254);
+  color: white;
+  border: none;
+  cursor: pointer;
+  flex: 1;
+}
+.cancel-button:hover {
+  background-color: rgb(56,148,251);
+}
+.error-message {
+  margin-top: 10px;
+  color: #bd6a64;
+  font-size: 14px;
+}
+</style>
+<template>
+  <div>
+    <van-nav-bar title="错题集" left-text="返回" left-arrow @click-left="goBack" />
+    <!-- 如果题目列表为空 -->
+    <div v-if="questions.length === 0" class="no-questions">
+      <p>你没有错题！</p>
+    </div>
+    <!-- 如果题目列表不为空 -->
+    <van-list v-else>
+      <div class="showQuestion" style="text-align: left;" v-for="(question) in questions" :key="question.id">
+        <van-card>
+          <!-- 根据题目类型进行渲染 -->
+          <template #desc>
+            <h3 style="font-weight: bold;">{{ question.introduce }}</h3>
+            <p>A.{{ question.optionA }}</p>
+            <p>B.{{ question.optionB }}</p>
+            <p>C.{{ question.optionC }}</p>
+            <p>D.{{ question.optionD }}</p>
+            <h3 style="color:#3495fc;font-weight: bold;">正确答案：{{ question.correctOption }}</h3>
+            <h3 style="color:#3495fc;font-weight: bold;">解析：{{ question.analyse }}</h3>
+          </template>
+        </van-card>              
+      </div>
+    </van-list>
+  </div>
+</template>
+<script>
+import axios from 'axios';
+import { FetchQuestions } from '../api/api';
+export default {
+  data() {
+    return {
+      wrongAnswers: [],
+      questions: [], 
+      loading: false, 
+    };
+  },
+  created() {
+    this.fetchQuestions(); 
+  },
+  methods: {
+    goBack() {
+      this.$router.push({ name: 'Challenge', params: { id: this.$route.params.id } });
+    },
+    async fetchQuestions() {
+      try {
+        this.loading = true; 
+		const token = localStorage.getItem('token');
+        const response = await axios.get(`http:
+        const wrongData = response.data;
+        const displayedIds = new Set();
+        this.questions = wrongData.map(wrongAnswer => {
+          if (!displayedIds.has(wrongAnswer.id)) {
+            displayedIds.add(wrongAnswer.id);
+            return wrongAnswer;
+          }
+        }).filter(question => question); 
+      } catch (error) {
+        console.error('Failed to fetch questions:', error);
+      } finally {
+        this.loading = false; 
+      }
+    },
+	async created() {
+    try {
+      this.loading = true; 
+      const token = localStorage.getItem('token');
+      this.questions = await FetchQuestions(token); 
+    } catch (error) {
+      console.error('Failed to fetch questions:', error);
+    } finally {
+      this.loading = false; 
+    }
+  }
+  },
+};
+</script>
+<style>
+.showQuestion{
+    padding: 1rem;
+}
+</style>
+<template>
+  <div>
+    <div class="header">
+      <img src="@/assets/img/arrow-left.png" class="back-button" @click="goBack" alt="返回">
+      <h1>点赞记录</h1>
+    </div>
+    <div class="post-container">
+      <div v-if="sortedLatestPosts.length === 0" class="no-questions">
+        <p>快去点赞吧！</p>
+      </div>
+      <ul v-else></ul>
+      <div v-for="post in sortedLatestPosts" :key="post.id" class="post-item" @click="goToPostDetail(post.id)">
+        <div class="post-header">
+          <img :src="getUser(post.userid).avatar" class="post-avatar">
+          <div class="post-user-info">
+            <p class="post-user-name">{{ getUser(post.userid).username }}</p>
+            <p class="post-user-time">{{ formatDate(post.createdAt) }}</p>
+          </div>
+        </div>
+        <div class="post-content">
+          <p>{{ post.content }}</p>
+        </div>
+        <div class="post-actions">
+          <span>{{ post.likes }} 点赞</span>
+          <span>{{ getComments(post.id).length }} 评论</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+<script>
+import { postlike,post,comments,user,fetchGroups,allgroup,group } from '../api/api';
+export default {
+  data() {
+    return {
+      posts: [],
+      comments: [],
+      users:[],
+    };
+  },
+  async created() {
+    try {
+      const postsData = await post(); 
+      const postlikesData = await postlike(); 
+      postlikesData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        const postLikesMap = new Map();
+        postlikesData.forEach(postlike => {
+            postLikesMap.set(postlike.postid, postlike.created_at);
+        });
+        this.posts = postsData
+            .filter(post => postLikesMap.has(post.id)) 
+            .sort((a, b) => new Date(postLikesMap.get(b.id)) - new Date(postLikesMap.get(a.id))); 
+        const commentsData = await comments();
+        const usersData = await user();
+        this.comments = commentsData;
+        this.users = usersData;
+    } catch (error) {
+        console.error('Error fetching data:', error);
+    }
+  },
+  computed: {
+    sortedLatestPosts() {
+      return this.posts;
+    },
+  },
+  methods: {
+    goBack() {
+      this.$router.go(-1);
+    },
+    goToPostDetail(postId) {
+      this.$router.push({ name: 'PostDetail', params: { id: postId } });
+    },
+    getUser(userid) {
+      return this.users.find(user => user.id === userid) || {};
+    },
+    getComments(postid) {
+      return this.comments.filter(comment => comment.postid === postid);
+    },
+    formatDate(isoString) {
+        const dateObj = new Date(isoString);
+        const year = dateObj.getFullYear();
+        const month = ('0' + (dateObj.getMonth() + 1)).slice(-2);
+        const date = ('0' + dateObj.getDate()).slice(-2);
+        const hours = ('0' + dateObj.getHours()).slice(-2);
+        const minutes = ('0' + dateObj.getMinutes()).slice(-2);
+        const seconds = ('0' + dateObj.getSeconds()).slice(-2);
+        return `${year}-${month}-${date} ${hours}:${minutes}:${seconds}`;
+    }
+  }
+};
+</script>
+<style scoped>
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center; 
+  padding: 10px;
+  position: relative; 
+}
+.back-button {
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  position: absolute;
+  left: 20px; 
+  top:15px;
+}
+.header h1 {
+  font-size: 24px;
+  flex: 1;
+  color: rgb(15,73,136);
+  text-align: center;
+}
+.post-container {
+  padding: 20px;
+}
+.post-item {
+  background-color: rgba(106,178,254,0.2);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  cursor: pointer;
+  padding: 10px;
+}
+.post-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px; 
+}
+.post-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  margin-right: 10px;
+}
+.post-user-info {
+  display: flex;
+  flex-direction: column;
+  margin-left: 10px; 
+}
+.post-user-name {
+  text-align: left;
+  font-size: 18px;
+  font-weight: bold;
+  color: rgb(15,73,136);
+}
+.post-user-time {
+  font-size: 12px;
+  text-align: left;
+  color: rgb(100, 100, 100);
+}
+.post-content {
+  margin-bottom: 10px;
+  text-align: left;
+  padding: 5px;
+  overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    word-wrap: break-word;
+}
+.post-actions {
+  display: flex;
+  justify-content: space-between;
+}
+.post-actions span {
+  color: #666;
+}
+</style>
+<template>
+  <div class="header">
+    <img src="../assets/img/arrow-left.png" class="back-button" @click="goBack" alt="返回">
+    <h1>积分和任务列表</h1>
+  </div>
+  <div class="container">
+    <div class="content">
+      <div class="points-container">
+        <h2>我的积分</h2>
+        <p class="points">{{ userPoints }}</p>
+      </div>
+    </div>
+    <div class="tasks-container">
+      <h2>积分任务</h2>
+      <ul>
+        <li v-for="task in tasks" :key="task.id" class="task-item">
+          <h3>{{ task.name }}</h3>
+          <p>{{ task.description }}</p>
+          <p class="task-points">{{ task.points }} 积分</p>
+          <button @click="completeTask(task)">完成任务</button>
+        </li>
+      </ul>
+    </div>
+  </div>
+</template>
+<script>
+import axios from 'axios';
+import {GetID, getUsers, AddPoint} from '../api/api';
+export default {
+  data() {
+    return {
+      userPoints: 0,
+      tasks: [
+        { id: 1, name: '每日签到', description: '每天签到一次', points: 10 },
+        { id: 2, name: '进行答题', description: '进行答题', points: 50 },
+        { id: 3, name: '分享活动', description: '分享活动链接到社交平台', points: 20 },
+        { id: 4, name: '填写问卷', description: '完成问卷调查', points: 30 }
+      ]
+    };
+  },
+  async created() {
+      const token = localStorage.getItem('token');
+      if (!token) {
+          throw new Error('Token not found in localStorage');
+      }
+      try {
+          const userid = await GetID({ token: token });
+          const id = userid.data.userId;
+          let data = await getUsers();
+          const user = data.data.find(item => item.id === id);
+          if (user) {
+              this.userPoints = user.point;
+          } else {
+              this.userPoints = 0; 
+          }
+      } catch (error) {
+          console.error('Error occurred:', error);
+          this.userPoints = 0;
+      }
+  },
+  methods: {
+    goBack() {
+      this.$router.go(-1);
+    },
+    fetchTasks() {
+    },
+    async completeTask(task) {
+      console.log(`完成任务：${task}`);
+      try {
+          const token = localStorage.getItem('token');
+          if (!token) {
+            throw new Error('Token not found in localStorage');
+          }
+          const response = await AddPoint({
+            token: token,
+            point: task.points
+          });
+          window.location.reload();
+        } catch (error) {
+          console.error('Error adding post:', error.message);
+        }
+    }
+  },
+  mounted() {
+    this.fetchTasks();
+  }
+};
+</script>
+<style scoped>
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  background-color: rgba(106,178,254,0.1);
+  border: 1px solid rgb(15,73,136,0.5);
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: 1fr; 
+  gap: 20px;
+}
+@media (min-width: 768px) {
+  .container {
+    grid-template-columns: 1fr 2fr; 
+  }
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center; 
+  padding: 10px;
+  position: relative;
+}
+.back-button {
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  position: absolute;
+  left: 20px; 
+  top:15px;
+}
+h1 {
+  color:rgb(15, 73, 136);
+  font-size: 24px;
+  margin: 0;
+  text-align: center;
+  flex: 1;
+}
+.points-container {
+  text-align: center;
+  margin-bottom: 20px;
+  background-color: #ffffff; 
+  padding: 16px;
+  border: 1px solid rgb(56,148,251); 
+  border-radius: 8px;
+}
+.points-container h2{
+  color: rgb(42,118,204);
+}
+.points {
+  font-size: 32px;
+  color: rgb(42,118,204); 
+  margin: 0;
+}
+.tasks-container {
+  background-color: #ffffff; 
+  padding: 12px; 
+  margin-top: 16px; 
+  border: 1px solid rgb(56,148,251);
+  border-radius: 8px;
+}
+.tasks-container h2 {
+  font-size: 20px;
+  margin-top: 0;
+  margin-bottom: 12px; 
+  color: rgb(42,118,204);
+}
+.task-item {
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 12px;
+  color: #666;
+  background-color: rgba(106,178,254,0.1);
+  border-radius: 8px;
+  border: 1px solid rgb(106,178,254);
+}
+.task-points {
+  font-size: 16px; 
+  color: #666;
+  margin-top: 6px;
+}
+button {
+  padding: 8px 16px;
+  background-color: rgb(42,118,204,0.5);
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s ease; 
+}
+button:hover,
+button:focus {
+  background-color: rgb(42,118,204);
+}
+</style>
+<template>
+  <div id="index-page" class="index-layout">
+    <div class="header-layout">
+      <!-- 首页头部组件 -->
+      <Header />
+    </div>
+    <div class="slider-layout">
+      <!-- 首页轮播组件 -->
+      <Slider />
+    </div>
+    <div class="headline-layout">
+      <!-- 首页头条组件 -->
+      <Headline />
+    </div>
+    <div class="nav-layout">
+      <!-- 首页导航组件 -->
+      <Nav />
+    </div>
+    <div class="picture-layout">
+      <!-- 首页图片组件 -->
+      <Picture />
+    </div>
+    <div class="enter-layout">
+      <!-- 首页闯关入口组件 -->
+      <Enter />
+    </div>
+    <div class="recommend-layout">
+      <!-- 首页课程推荐组件 -->
+      <Recommend />
+    </div>
+    <div><br><br><br></div>
+  </div>
+</template>
+<script>
+import Header from '../components/home/components/homeHeader.vue';
+import Slider from '../components/home/components/homeSlider.vue';
+import Headline from '../components/home/components/homeHeadline.vue';
+import Nav from '../components/home/components/homeNav.vue';
+import Picture from '../components/home/components/homePicture.vue';
+import Enter from '../components/home/components/homeEnter.vue';
+import Recommend from '../components/home/components/homeRecommend.vue';
+export default {
+  components: {
+    Header,
+    Slider,
+    Headline,
+    Nav,
+    Picture,
+    Enter,
+    Recommend
+  }
+};
+</script>
+<style scoped>
+.index-layout{
+  position:absolute;
+  top:0px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+.header-layout {
+  position: fixed;
+  background-color: #fff;
+  margin-left: 0;
+  top: 0px;
+  z-index: 1000;
+  width: 100%;
+  height: 54px;
+}
+.header-layout .searchbox{
+  width: 89.33%;
+}
+.headline-layout{
+  margin-top: 1px;
+}
+.nav-layout{
+  margin-bottom: 10px;
+}
+.enter-layout, .recommend-layout{
+  margin-top: 10px;
+}
+</style>
+<template>
+  <div class="page-container">
+    <div class="header">
+      <!-- 返回按钮 -->
+      <img src="../assets/img/arrow-left.png" class="back-button" @click="goBack" alt="返回">
+      <!-- 页面标题 -->
+      <h1>群组页面</h1>
+    </div>
+    <!-- 搜索框 -->
+    <div class="search-container" @click.stop>
+      <input type="text" v-model="searchKeyword" placeholder="搜索群组" class="search-box" @focus="showSearchHistory"  @keydown.enter="fetchSearchHistory" >
+      <!-- 搜索历史记录 -->
+      <ul v-if="showHistory" class="search-history">
+        <li v-for="historyItem in searchHistory" :key="historyItem.id">{{ historyItem.content }}</li>
+    </ul>
+    </div>
+    <!-- 群组列表 -->
+    <div class="group-list">
+      <div v-for="group in groups" :key="group.id" class="group-item">
+        <span>{{ group.group_name }}</span>
+        <button @click="addGroup(group)" class="add-button">加入</button>
+      </div>
+    </div>
+  </div>
+</template>
+<script>
+import axios from 'axios';
+import {group, historygroup, addHistoryGroup, GetID, JoinGroup} from '../api/api.js';
+export default {
+  data() {
+    return {
+      searchKeyword: '', 
+      showHistory: false, 
+      searchHistory: [],
+      groups: []
+    };
+  },
+  created() {
+    this.fetchGroupList();
+    document.addEventListener('click', this.handleClickOutside);
+  },
+  beforeDestroy() {
+    document.removeEventListener('click', this.handleClickOutside);
+  },
+  methods: {
+    async fetchSearchHistory() {
+      if (this.searchKeyword.trim()) {
+        try {
+          const token = localStorage.getItem('token');
+          if (!token) {
+            throw new Error('Token not found in localStorage');
+          }
+          const response = await addHistoryGroup({
+            token: token,
+            content: this.searchKeyword
+          });
+          window.location.reload();
+        } catch (error) {
+          console.error('Error adding comment:', error.message);
+        }
+      }
+    },
+    async fetchGroupList() {
+      try {
+            this.groups = await group();
+            console.log(this.groups)
+        } catch (error) {
+            console.error('Error fetching articles:', error);
+        }
+    },
+    async addGroup(group) {
+        try {
+          const token = localStorage.getItem('token');
+          if (!token) {
+            throw new Error('Token not found in localStorage');
+          }
+          const response = await JoinGroup({
+            token: token,
+            groupid: group.id
+          });
+          this.$router.push('/chat');
+        } catch (error) {
+          console.error('Error creating group:', error.message);
+        }
+    },
+    goBack() {
+      this.$router.go(-1);
+    },
+    async showSearchHistory() {
+      this.showHistory = true;
+      try {
+        const token = localStorage.getItem('token');
+          if (!token) {
+            throw new Error('Token not found in localStorage');
+          }
+            const userid= await GetID({
+            token: token,
+            });
+            const id= userid.data.userId
+            let data = await historygroup();
+            const filteredData = data.filter(item => parseInt(item.userid) === id);
+            this.searchHistory = filteredData.slice(-3)
+        console.log(this.searchHistory)
+        } catch (error) {
+            console.error('Error fetching articles:', error);
+        }
+    },
+    handleClickOutside(event) {
+      if (!this.$el.contains(event.target)) {
+        this.showHistory = false;
+      }
+    }
+  },
+  computed: {
+        sortedLatest() {
+            return this.searchHistory.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        }
+  }
+};
+</script>
+<style scoped>
+.page-container {
+  margin-top: 20px; 
+  padding: 0 20px; 
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center; 
+  padding: 10px;
+  position: relative;
+}
+.back-button {
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  position: absolute;
+  left: 20px; 
+  top:15px;
+}
+.header h1 {
+  font-size: 24px;
+  margin: 0;
+  flex: 1;
+  color: rgb(15,73,136);
+  text-align: center;
+}
+.search-container {
+  display: flex;
+  align-items: center;
+  position: relative; 
+  margin-bottom: 20px; 
+}
+.search-box {
+  padding: 8px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  flex: 1;
+}
+.search-history {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  width: 100%;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.search-history li {
+  padding: 8px;
+  cursor: pointer;
+}
+.search-history li:hover {
+  background-color: #f0f0f0;
+}
+.group-list {
+  width: 100%;
+  background-color: rgba(106,178,254,0.1);
+}
+.group-item {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  border-bottom: 1px solid rgb(106,178,254);
+}
+.group-item:last-child {
+  border-bottom: none;
+}
+.add-button {
+  margin-left: auto; 
+  padding: 6px 12px;
+  background-color: rgb(56,148,251);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.add-button:hover {
+  background-color: rgb(42,118,204);
+}
+</style>
+<template>
+  <div>
+  <div class="header">
+    <img src="@/assets/img/arrow-left.png" class="back-button" @click="goBack" alt="返回">
+    <h1>错题集</h1>
+  </div>
+  <div class="history-questions">
+    <h2>历史错题记录</h2>
+    <div v-if="questions.length === 0" class="no-questions">
+    <p>你没有错题！</p>
+  </div>
+  <ul v-else>
+      <li v-for="question in questions" :key="question.id">
+        <div class="question-item">
+          <div class="question-header">
+            <p class="question-title">{{ question.introduce}}</p>
+            <span class="question-type">{{ question.point }}</span>
+          </div>
+          <div class="question-options">
+            <p>A. {{ question.optionA }}</p>
+            <p>B. {{ question.optionB }}</p>
+            <p>C. {{ question.optionC }}</p>
+            <p>D. {{ question.optionD }}</p>
+            <h3 style="color:#3495fc;font-weight: bold;font-size: 16px;text-align: left;margin-left: 3%;margin-top: 5px">正确答案：{{ question.correctOption }}</h3>
+				    <h3 style="color:#3495fc;font-weight: bold;font-size: 16px;text-align: left;margin-left: 3%">解析：{{ question.analyse }}</h3>
+          </div>
+        </div>
+      </li>
+    </ul>
+  </div>
+  </div>
+</template>
+<script>
+import axios from 'axios';
+import { FetchQuestions } from '../api/api';
+export default {
+  data() {
+    return {
+      wrongAnswers: [],
+      questions: [],
+      loading: false, 
+    };
+  },
+  created() {
+    this.fetchQuestions(); 
+  },
+  methods: {
+    goBack() {
+      this.$router.push("/My");
+    },
+    async fetchQuestions() {
+      try {
+        this.loading = true; 
+		    const token = localStorage.getItem('token');
+        const response = await axios.get(`http:
+        const wrongData = response.data;
+        const displayedIds = new Set();
+        this.questions = wrongData.map(wrongAnswer => {
+          if (!displayedIds.has(wrongAnswer.id)) {
+            displayedIds.add(wrongAnswer.id);
+            return wrongAnswer;
+          }
+        }).filter(question => question); 
+      } catch (error) {
+        console.error('Failed to fetch questions:', error);
+      } finally {
+        this.loading = false; 
+      }
+    },
+	async created() {
+    try {
+      this.loading = true;
+      const token = localStorage.getItem('token');
+      this.questions = await FetchQuestions(token); 
+    } catch (error) {
+      console.error('Failed to fetch questions:', error);
+    } finally {
+      this.loading = false; 
+    }
+  }
+  },
+};
+</script>
+<style scoped>
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center; 
+  padding: 10px;
+  position: relative;
+}
+.back-button {
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  position: absolute;
+  left: 20px; 
+  top:15px;
+}
+.header h1 {
+  font-size: 24px;
+  flex: 1;
+  color: rgb(15,73,136);
+  text-align: center;
+}
+.history-questions h2 {
+  margin-bottom: 10px;
+  color: rgb(42,118,204);
+  text-align: center;
+}
+.history-questions {
+  border: 1px solid rgb(106,178,254);
+  border-radius: 5px;
+  font-family: Arial, sans-serif;
+  background-color: rgb(106,178,254,0.1);
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+ul {
+  list-style-type: none;
+  padding: 0;
+}
+.question-item {
+  margin-bottom: 10px;
+  padding: 10px;
+  color:#666;
+  background-color: rgb(106,178,254,0.2);
+  border-radius: 4px;
+}
+.question-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.question-title {
+  flex: 1;
+  text-align: left;
+  margin-left: 10px;
+  overflow-wrap: break-word; 
+  white-space: normal; 
+  max-width: 80%; 
+}
+.question-type, .question-status {
+  padding: 4px 8px;
+  border-radius: 4px;
+  color:rgb(56,148,251,0.8);
+  background-color: #ffffff;
+}
+.question-options {
+  margin-top: 10px;
+}
+.question-options p {
+  margin: 0;
+  padding: 5px;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+}
+</style>
+<template>
+  <div>
+    <div class="header">
+      <img src="../assets/img/arrow-left.png" class="back-button" @click="goBack" alt="返回">
+      <h1>个人动态</h1>
+    </div>
+    <div class="post-container">
+      <div v-if="posts.length === 0" class="no-posts-message">
+        <p>快来发表动态吧</p>
+      </div>
+      <div v-else>
+        <div v-for="post in posts" :key="post.id" class="post-item" @click="goToPostDetail(post.id)">
+          <div class="post-header">
+            <img :src="getUser(post.userid).avatar" class="post-avatar">
+            <div class="post-user-info">
+              <p class="post-user-name">{{ getUser(post.userid).username }}</p>
+              <p class="post-user-time">{{ formatDate(post.createdAt) }}</p>
+            </div>
+          </div>
+          <div class="post-content">
+            <p>{{ post.content }}</p>
+          </div>
+          <div class="post-actions">
+            <span>{{ post.likes }} 点赞</span>
+            <span>{{ getComments(post.id).length }} 评论</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+<script>
+import {post, comments, user, GetID} from '../api/api';
+export default {
+  data() {
+    return {
+      posts: {},
+      comments: [],
+      users: []
+    };
+  },
+  async created() {
+      try {
+            const token = localStorage.getItem('token');
+            if (!token) {
+              throw new Error('Token not found in localStorage');
+            }
+            const userid= await GetID({
+            token: token,
+            });
+            const id= userid.data.userId
+            const data1 = await post();
+            const data2 = await comments();
+            const data3 = await user();
+            this.posts = data1;
+            this.comments = data2;
+            this.users = data3;
+            let posts=this.posts.filter(post => post.userid === id);
+            this.posts =posts
+        } catch (error) {
+        console.error('Error fetching articles:', error);
+        }
+  },
+  methods: {
+    goBack() {
+      this.$router.go(-1);
+    },
+    goToPostDetail(postId) {
+      this.$router.push({ name: 'PostDetail', params: { id: postId } });
+    },
+    getUser(userid) {
+      return this.users.find(user => user.id === userid) || {};
+    },
+    getComments(postid) {
+      return this.comments.filter(comment => comment.postid === postid);
+    },
+    formatDate(dateString) {
+      const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+      return new Date(dateString).toLocaleDateString('zh-CN', options);
+    }
+  }
+};
+</script>
+<style scoped>
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center; 
+  padding: 10px;
+  position: relative;
+}
+.back-button {
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  position: absolute;
+  left: 20px; 
+  top:15px;
+}
+.header h1 {
+  font-size: 24px;
+  color: rgb(15,73,136);
+  flex: 1;
+  text-align: center;
+  margin: 0;
+}
+.post-container {
+  padding: 20px;
+}
+.post-item {
+  background-color: rgba(106,178,254,0.2);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  cursor: pointer;
+  padding: 10px;
+}
+.post-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.post-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  margin-right: 10px;
+}
+.post-user-info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center; 
+}
+.post-user-name {
+  text-align: left;
+  font-size: 18px;
+  font-weight: bold;
+  color: rgb(15,73,136);
+}
+.post-user-time {
+  font-size: 14px;
+  text-align: left;
+  color: rgb(100, 100, 100);
+}
+.post-content {
+  margin-bottom: 10px;
+  text-align: center; 
+}
+.post-actions {
+  display: flex;
+  justify-content: space-between;
+}
+.post-actions span {
+  color: #666;
+}
+</style>
+import { createStore } from 'vuex';
+export default createStore({
+  state: {
+    Authorization: localStorage.getItem('Authorization') ? localStorage.getItem('Authorization') : ''
+  },
+  mutations: {
+    changeLogin (state, user) {
+        state.Authorization = user.Authorization;
+        localStorage.setItem('Authorization', user.Authorization);
+      }
+  },
+});
+<template>
+  <div class="choicesBox">
+    <h1>欢迎使用‘究理’</h1>
+    <van-field
+      style="margin-top: 15%;"
+      v-model="identity"
+      is-link
+      readonly
+      label="身份"
+      placeholder="请选择您的身份"
+      @click="showIdentityPicker = true"
+    />
+    <van-popup v-model:show="showIdentityPicker" round position="bottom">
+      <van-picker
+        :columns="identityColumns"
+        @cancel="showIdentityPicker = false"
+        @confirm="onConfirmIdentity"
+      />
+    </van-popup>
+    <van-field v-if="isStudent"
+      v-model="fieldValue1"
+      is-link
+      readonly
+      label="年级"
+      placeholder="请选择你所在的年级"
+      @click="showPicker1 = true"
+    />
+    <van-popup v-if="isStudent" v-model:show="showPicker1" round position="bottom">
+      <van-picker
+        :columns="columns1"
+        @cancel="showPicker1 = false"
+        @confirm="onConfirm1"
+      />
+    </van-popup>
+    <div style="margin:10%">
+      <van-button plain block type="primary" native-type="submit" @click="onSubmit">确定</van-button>
+    </div>
+  </div>
+</template>
+<script setup>
+import { ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { postIdentity } from '../api/api';
+const router = useRouter(); 
+const identityColumns = [
+  { text: '学生', value: '学生' },
+  { text: '老师', value: '老师' },
+];
+const columns1 = [
+  { text: '一年级', value: '一年级' },
+  { text: '二年级', value: '二年级' },
+      { text: '三年级', value: '三年级' },
+      { text: '四年级', value: '四年级' },
+      { text: '五年级', value: '五年级' },
+      { text: '六年级', value: '六年级' },
+      { text: '初一', value: '初一' },
+      { text: '初二', value: '初二' },
+      { text: '初三', value: '初三' },
+      { text: '高一', value: '高一' },
+      { text: '高二', value: '高二' },
+      { text: '高三', value: '高三' },
+];
+const identity = ref('');
+const showIdentityPicker = ref(false);
+const fieldValue1 = ref('');
+const showPicker1 = ref(false);
+const isStudent = ref(false); 
+const onConfirmIdentity = ({ selectedOptions }) => {
+  showIdentityPicker.value = false;
+  identity.value = selectedOptions[0].value;
+  isStudent.value = selectedOptions[0].value === '学生';
+};
+const onConfirm1 = ({ selectedOptions }) => {
+  showPicker1.value = false;
+  fieldValue1.value = selectedOptions[0].text;
+};
+const onSubmit = async () => {
+  try {
+    const token = localStorage.getItem('token');
+    if (isStudent.value) {
+       await postIdentity({
+        identity: fieldValue1.value,
+        token: token
+      });
+    } else {
+      await postIdentity({
+        identity: identity.value,
+        token: token
+      });
+    }
+    navigateToHome(); 
+  } catch (error) {
+    console.error('选择身份过程中发生错误:', error);
+  }
+};
+const navigateToHome = () => {
+  router.push('/');
+};
+</script>
+<style scoped>
+.choicesBox {
+  margin-top: 15%;
+  margin-left: 10%;
+  margin-right: 10%;
+}
+</style>
+<template>
+  <div class="content">
+    <div class="head">
+      <img src="/src/assets/img/chat_copy.png" class="round-image" >
+      <div style="display: block;margin-left:5px">
+      <h1 class="app-title">学习交流区</h1>
+        <div style="display: flex">
+    <router-link :to="{ path: '/group' }" class="group">
+      <div style="font-weight: bold;">当前群组：</div>
+    </router-link>
+        <select id="groupSelect" v-model="currentGroup" @change="groupChanged">
+          <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.group_name }}</option>
+        </select>
+        </div>
+        </div>
+      </div>
+    <div class="tabs">
+      <button class="tab" @click="currentTab = 'latest'" :class="{ 'active': currentTab === 'latest' }">最新</button>
+      <button class="tab" @click="currentTab = 'hot'" :class="{ 'active': currentTab === 'hot' }">最热</button>
+      <button class="tab" @click="currentTab = 'essence'" :class="{ 'active': currentTab === 'essence' }">精华</button>
+    </div>
+    <div v-if="currentTab === 'latest'">
+      <div v-for="post in sortedLatestPosts" :key="post.id" class="post">
+        <router-link :to="{ name: 'PostDetail', params: { id: post.id } }">
+          <div class="post-header">
+            <img :src="getUser(post.userid).avatar" class="round-image">
+            <div class="post-user-info">
+              <p class="post-user">{{ getUser(post.userid).username }}</p>
+              <p class="post-date">{{ formatDate(post.createdAt) }}</p>
+            </div>
+          </div>
+          <div class="post-content">
+            <p>{{ post.content }}</p>
+          </div>
+        </router-link>
+        <div class="post-actions">
+          <span>{{ post.likes }} 点赞</span>
+          <span>{{ getComments(post.id).length }} 评论</span>
+        </div>
+        <div v-show="post.showCommentInput" class="comment-input">
+          <input v-model="post.newComment" type="text" placeholder="输入评论">
+          <button @click="addComment(post)">发布</button>
+        </div>
+      </div>
+    </div>
+    <div v-else-if="currentTab === 'hot'">
+      <div v-for="post in hotPosts" :key="post.id" class="post">
+        <router-link :to="{ name: 'PostDetail', params: { id: post.id } }">
+          <div class="post-header">
+            <img :src="getUser(post.userid).avatar" class="round-image">
+            <div class="post-user-info">
+              <p class="post-user">{{ getUser(post.userid).username }}</p>
+              <p class="post-date">{{ formatDate(post.createdAt) }}</p>
+            </div>
+          </div>
+          <div class="post-content">
+            <p>{{ post.content }}</p>
+          </div>
+        </router-link>
+        <div class="post-actions">
+          <span>{{ post.likes }} 点赞</span>
+          <span>{{ getComments(post.id).length }} 评论</span>
+        </div>
+        <div v-show="post.showCommentInput" class="comment-input">
+          <input v-model="post.newComment" type="text" placeholder="入评论">
+          <button @click="addComment(post)">发布</button>
+        </div>
+      </div>
+    </div>
+    <div v-else>
+      <div v-for="post in essencePosts" :key="post.id" class="post">
+        <router-link :to="{ name: 'PostDetail', params: { id: post.id } }">
+          <div class="post-header">
+            <img :src="getUser(post.userid).avatar" class="round-image">
+            <div class="post-user-info">
+              <p class="post-user">{{ getUser(post.userid).username }}</p>
+              <p class="post-date">{{ formatDate(post.createdAt) }}</p>
+            </div>
+          </div>
+          <div class="post-content">
+            <p>{{ post.content }}</p>
+          </div>
+        </router-link>
+        <div class="post-actions">
+          <span>{{ post.likes }} 点赞</span>
+          <span>{{ getComments(post.id).length }} 评论</span>
+        </div>
+        <div v-show="post.showCommentInput" class="comment-input">
+          <input v-model="post.newComment" type="text" placeholder="输入评论">
+          <button @click="addComment(post)">发布</button>
+        </div>
+      </div>
+    </div>
+    <div class="floating-icon" @click="toggleMenu">
+      +
+    </div>
+    <div v-if="menuOpen" class="menu">
+      <button @click="postStatus">发表动态</button>
+      <button @click="createGroup">发起群组</button>
+      <button @click="toggleMenu">取消</button>
+    </div>
+  </div>
+</template>
+<script>
+import { post,comments,user,fetchGroups,allgroup,group } from '../api/api';
+export default {
+  name: 'Chat',
+  data() {
+    return {
+      currentTab: 'latest',
+      menuOpen: false,
+      posts: [],
+      comments: [],
+      users: [],
+      currentGroup:'',
+      groups: [],
+      grouplist:[],
+    };
+  },
+  async created() {
+        try {
+            this.grouplist = await group();
+            let data = await allgroup();
+            const userIds = data.map(item => item.groupid);
+            const filteredGrouplist = this.grouplist.filter(item => userIds.includes(item.id));
+            this.groups = filteredGrouplist;
+            if (this.groups.length > 0) {
+              this.currentGroup = this.groups[0].id; 
+            }
+            const data1 = await post();
+            const data2 = await comments();
+            const data3 = await user();
+            this.posts = data1;
+            this.comments = data2;
+            this.users = data3;
+        } catch (error) {
+        console.error('Error fetching articles:', error);
+        }
+  },
+  async loadGroups() {
+      try {
+        const token = localStorage.getItem('token');
+          if (!token) {
+            throw new Error('Token not found in localStorage');
+          }
+        const response = await fetchGroups({
+            token: token,
+        });
+        this.groups = response.data.groups;
+        if (this.groups.length > 0) {
+          this.currentGroup = this.groups[0].id; 
+        }
+      } catch (error) {
+        console.error('Failed to fetch groups:', error);
+      }
+    },
+  computed: {
+    sortedLatestPosts() {
+      return this.posts.filter(post => new Date(post.createdAt) >= new Date('2023-04-01')).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    },
+    hotPosts() {
+      return this.posts.filter(post => post.likes > 5 );
+    },
+    essencePosts() {
+      return this.posts.filter(post => post.likes > 15);
+    }
+  },
+  methods: {
+    toggleMenu() {
+      this.menuOpen = !this.menuOpen;
+    },
+    postStatus() {
+      this.$router.push('/publish');
+    },
+    createGroup() {
+      this.$router.push('/launch');
+    },
+    addComment(post) {
+      if (post.newComment.trim()) {
+        this.comments.push({
+          id: this.comments.length + 1,
+          postid: post.id,
+          userid: 1,
+          content: post.newComment,
+          createdAt: new Date().toISOString()
+        });
+        post.newComment = '';
+        post.showCommentInput = false;
+      }
+    },
+    getUser(userid) {
+      return this.users.find(user => user.id === userid) || {};
+    },
+    getComments(postid) {
+      return this.comments.filter(comment => comment.postid === postid);
+    },
+    formatDate(isoString) {
+        const dateObj = new Date(isoString);
+        const year = dateObj.getFullYear();
+        const month = ('0' + (dateObj.getMonth() + 1)).slice(-2);
+        const date = ('0' + dateObj.getDate()).slice(-2);
+        const hours = ('0' + dateObj.getHours()).slice(-2);
+        const minutes = ('0' + dateObj.getMinutes()).slice(-2);
+        const seconds = ('0' + dateObj.getSeconds()).slice(-2);
+        return `${year}-${month}-${date} ${hours}:${minutes}:${seconds}`;
+        }
+  }
+};
+</script>
+<style scoped>
+.content {
+  max-width: 800px; 
+  width: 100%; 
+  background-color: #fff;
+  padding: 10%;
+  box-sizing: border-box;
+}
+.head {
+  display: flex;
+  align-items: center;
+}
+.app-title {
+  font-size: 20px;
+  font-weight: bold;
+  margin-left: 10px;
+  color: rgb(15,73,136);
+}
+.round-image {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin-right: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.group{
+  color: rgb(15,73,136);
+  position:relative;
+  display: flex;
+  margin-left: 10px;
+}
+.tabs {
+  display: flex;
+  border-bottom: 1px solid #ccc;
+  margin-bottom: 20px;
+}
+.tab {
+  padding: 10px 20px;
+  cursor: pointer;
+  border: none;
+  background-color: transparent;
+  font-size: 16px;
+  margin-right: 10px;
+}
+.tab:hover {
+  background-color: rgb(106, 178, 254, 0.2);
+}
+.tab.active {
+  font-weight: bold;
+  color: rgb(15,73,136);
+}
+.post {
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: rgba(106, 178, 254, 0.2);
+  border-radius: 5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.post-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px; 
+}
+.post-user-info {
+  display: flex;
+  flex-direction: column;
+  margin-left: 10px; 
+}
+.post-content {
+  font-size: 16px;
+  text-align: left;
+  padding: 5px;
+  color: rgb(15,73,136);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    word-wrap: break-word;
+}
+.post-user {
+  text-align: left;
+  font-size: 18px;
+  font-weight: bold;
+  color: rgb(15,73,136);
+}
+.post-date {
+  font-size: 12px;
+  text-align: left;
+  color: rgb(100, 100, 100);
+}
+.post-actions {
+  display: flex;
+  justify-content: space-between;
+  color: #666;
+  margin-top: 10px;
+}
+.post-actions span {
+  margin-right: 10px;
+}
+.comment-input {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+}
+.comment-input input {
+  flex: 1;
+  margin-right: 10px;
+}
+.floating-icon {
+  position: fixed;
+  bottom: 65px;
+  right: 20px;
+  width: 60px;
+  height: 60px;
+  background-color: rgb(56,148,251);
+  color: white;
+  border-radius: 50%;
+  font-size: 36px;
+  text-align: center;
+  line-height: 60px;
+  cursor: pointer;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+}
+.menu {
+  position: fixed;
+  bottom: 70px;
+  right: 20px;
+  background-color: rgb(56,148,251);
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+}
+.menu1 {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: rgb(56,148,251);
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  max-width: 90%;
+  max-height: 90vh;
+  overflow: auto;
+}
+.comment-input {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+}
+.comment-input input {
+  flex: 1;
+  margin-right: 10px;
+}
+</style>
+<template>
+  <div>
+    <van-nav-bar title="闯关" left-text="返回" left-arrow @click-left="onClickLeft" />
+    <div style="font-size: 40px;font-weight:bold;position: relative;margin-top: 80px">第{{this.$route.params.id}}关</div>
+    <router-link :to="{ name: 'Answer', params: { id: this.$route.params.id } }" style="margin-top: 10%;margin-right:12%; --van-button-default-height: 8rem;">
+    <div style="margin-top: 80px;margin-left:12%;margin-right:12%; --van-button-default-height: 5rem;">
+        <van-button plain block type="primary" native-type="submit" @click="startAnswer">开始答题</van-button>
+    </div>
+    </router-link>
+    <router-link :to="{ name: 'Wrong', params: { id: this.$route.params.id } }" style="margin-top: 10%;margin-right:12%; --van-button-default-height: 8rem;">
+    <div style="margin-top: 10%;margin-left:12%; --van-button-default-height: 8rem;">
+        <van-button style="width: 40%; float:left" plain block type="primary" native-type="submit" @click="openWrong">
+            <van-icon name="records-o" size="30"/>错题集</van-button>
+    </div>
+    </router-link>
+    <router-link :to="{ name: 'Rank', params: { id: this.$route.params.id } }">
+      <div style="margin-top: -10%;margin-right:12%; --van-button-default-height: 8rem;">
+        <van-button style="width: 40%; float:right" plain block type="primary" native-type="submit" @click="openRank">
+            <van-icon name="medal-o" size="30"/>排行榜</van-button>
+        </div>
+    </router-link>
+</div>
+</template>
+<script>
+	export default {
+	  methods: {
+        onClickLeft() {
+          this.$router.push('/');
+	    },
+        startAnswer(){
+            sessionStorage.clear("challenge");
+            this.$router.push('/answer');
+        },
+        openWrong(){
+            sessionStorage.clear("challenge");
+            this.$router.push('/wrong');
+        },
+	  },
+	};
+</script>
+<style>
+</style>
+<template>
+  <div class="category-layout">
+    <div class="header-layout">
+      <!-- 首页头部组件 -->
+      <Header />
+    </div>
+    <div class="topNav-out">
+      <topNav />
+    </div>
+    <div class="topNav-below">
+      <RouterView></RouterView>
+    </div>
+  </div>
+</template>
+<script>
+import {RouterView} from 'vue-router';
+import Header from '../components/home/components/homeHeader.vue';
+import topNav from '../components/category/components/categoryNav-top.vue';
+export default {
+  components: {
+    Header,
+    topNav
+  }
+};
+</script>
+<style scoped>
+.category-layout :deep(.common-layout){
+  position:absolute;
+  top:70px;
+  overflow-y: auto;
+  display: flex !important ;
+  flex-direction: column;
+  flex-grow: 1;
+  height: 100%;
+  width: 100%;
+}
+.header-layout {
+  position: fixed;
+  background-color: #fff;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  width: 100%;
+  height: 54px;
+}
+.header-layout .searchbox{
+  width: 89.33%;
+}
+.topNav-out{
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  width: 100%;
+  top: 50px;
+}
+.topNav-below{
+  position: absolute;
+  width: 100%;
+  top:100px;
+}
+</style>
+<template>
+  <div>
+    <div class="header">
+      <img src="@/assets/img/arrow-left.png" class="back-button" @click="goBack" alt="返回">
+      <h1>浏览记录</h1>
+    </div>
+    <div class="post-container">
+      <div v-if="sortedLatestPosts.length === 0" class="no-questions">
+        <p>你没有任何浏览！</p>
+      </div>
+      <ul v-else></ul>
+      <div v-for="post in sortedLatestPosts" :key="post.id" class="post-item" @click="goToPostDetail(post.id)">
+        <div class="post-header">
+          <img :src="getUser(post.userid).avatar" class="post-avatar">
+          <div class="post-user-info">
+            <p class="post-user-name">{{ getUser(post.userid).username }}</p>
+            <p class="post-user-time">{{ formatDate(post.createdAt) }}</p>
+          </div>
+        </div>
+        <div class="post-content">
+          <p>{{ post.content }}</p>
+        </div>
+        <div class="post-actions">
+          <span>{{ post.likes }} 点赞</span>
+          <span>{{ getComments(post.id).length }} 评论</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+<script>
+import { post,comments,user,postclick } from '../api/api';
+export default {
+  data() {
+    return {
+      posts: [],
+      comments: [],
+      users: []
+    };
+  },
+  async created() {
+    try {
+        const postsData = await post(); 
+        const postlikesData = await postclick(); 
+        postlikesData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        const postLikesMap = new Map();
+        postlikesData.forEach(postlike => {
+            postLikesMap.set(postlike.postid, postlike.created_at);
+        });
+        this.posts = postsData
+            .filter(post => postLikesMap.has(post.id)) 
+            .sort((a, b) => new Date(postLikesMap.get(b.id)) - new Date(postLikesMap.get(a.id))); 
+        const commentsData = await comments();
+        const usersData = await user();
+        this.comments = commentsData;
+        this.users = usersData;
+    } catch (error) {
+        console.error('Error fetching data:', error);
+    }
+  },
+  computed: {
+    sortedLatestPosts() {
+      return this.posts;
+    },
+  },
+  methods: {
+    goBack() {
+      this.$router.go(-1);
+    },
+    goToPostDetail(postId) {
+      this.$router.push({ name: 'PostDetail', params: { id: postId } });
+    },
+    getUser(userid) {
+      return this.users.find(user => user.id === userid) || {};
+    },
+    getComments(postid) {
+      return this.comments.filter(comment => comment.postid === postid);
+    },
+    formatDate(isoString) {
+        const dateObj = new Date(isoString);
+        const year = dateObj.getFullYear();
+        const month = ('0' + (dateObj.getMonth() + 1)).slice(-2);
+        const date = ('0' + dateObj.getDate()).slice(-2);
+        const hours = ('0' + dateObj.getHours()).slice(-2);
+        const minutes = ('0' + dateObj.getMinutes()).slice(-2);
+        const seconds = ('0' + dateObj.getSeconds()).slice(-2);
+        return `${year}-${month}-${date} ${hours}:${minutes}:${seconds}`;
+    }
+  }
+};
+</script>
+<style scoped>
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center; 
+  padding: 10px;
+  position: relative; 
+}
+.back-button {
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  position: absolute;
+  left: 20px; 
+  top:15px;
+}
+.header h1 {
+  font-size: 24px;
+  flex: 1;
+  color: rgb(15,73,136);
+  text-align: center;
+}
+.post-container {
+  padding: 20px;
+}
+.post-item {
+  background-color: rgba(106,178,254,0.2);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  cursor: pointer;
+  padding: 10px;
+}
+.post-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.post-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  margin-right: 10px;
+}
+.post-user-info {
+  display: flex;
+  flex-direction: column;
+  margin-left: 10px;
+}
+.post-user-name {
+  text-align: left;
+  font-size: 18px;
+  font-weight: bold;
+  color: rgb(15,73,136);
+}
+.post-user-time {
+  font-size: 12px;
+  text-align: left;
+  color: rgb(100, 100, 100);
+}
+.post-content {
+  text-align: left;
+  padding: 5px;
+  overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    word-wrap: break-word;
+}
+.post-actions {
+  display: flex;
+  justify-content: space-between;
+}
+.post-actions span {
+  color: #666;
+}
+</style>
+<template>
+        <van-nav-bar
+        left-text="返回"
+        left-arrow
+        fixed
+        class="back-button"
+        @click-left="onClickLeft"
+        >
+        </van-nav-bar>
+</template>
+<script>
+export default{
+    setup() {
+    const onClickLeft = () => history.back();
+    return {
+      onClickLeft,
+    };
+  },
+}
+</script>
+<style>
+.van-nav-bar_content{
+  height: 10px;
+}
+.van-nav-bar_left .van-nav-bar_text
+{
+    font-size: 20px;
+    color: black;
+}
+.van-nav-bar .var-icon{
+    color: black;
+}
+.van-nav-bar-background{
+    background: none;
+}
+</style>
+<template>
+    <BackPage title="课程详情页"/>
+    <div class="article-layout">
+        <h2>这里是课程</h2>
+    </div>
+</template>
+<script>
+import "../assets/styles/home.css";
+import BackPage from "./BackPage.vue";
+export default{
+    components: {
+        BackPage,
+    }
+}
+</script>
+<style scoped></style>
+<template>
+    <div>
+        <van-nav-bar title="题目详情" left-text="返回" left-arrow @click-left="goBack" />
+        <van-card style="text-align: left;margin-top:10%; margin-left:5%;margin-right:5%">
+			<template #desc>
+                <h3 style="font-weight: bold; font-size:16px">{{ question.introduce }}</h3>
+				<p style="font-size: 16px;">A.{{ question.optionA }}</p>
+				<p style="font-size: 16px;">B.{{ question.optionB }}</p>
+				<p style="font-size: 16px;">C.{{ question.optionC }}</p>
+				<p style="font-size: 16px;">D.{{ question.optionD }}</p>
+                <h3 style="color:#3495fc;font-weight: bold;font-size: 16px;">正确答案：{{ question.correctOption }}</h3>
+				<h3 style="color:#3495fc;font-weight: bold;font-size: 16px;">解析：{{ question.analyse }}</h3>
+		    </template>
+	    </van-card>  
+    </div>
+</template>
+<script>
+import "../assets/styles/home.css";
+import BackPage from "./BackPage.vue";
+import { getQuestionById } from '../api/api';
+export default {
+  data() {
+    return {
+      question: {},
+    };
+  },
+  async created() {
+        const articleId = this.$route.params.id;
+        try {
+            this.question = await getQuestionById(articleId);
+        } catch (error) {
+            console.error('Error fetching a:', error);
+        }
+    },
+  methods: {
+    goBack() {
+      this.$router.go(-1);
+    },
+  }
+};
+</script>
+<style scoped></style>
+<template>
+  <div id="app" class="searchbox">
+    <img src="../../../assets/img/ss.png" class="iconfont icon-search">
+    <router-link :to="'/afterSearch'">
+      <form class="searchbox-form" @submit.prevent="search">
+        <input type="text" v-model="searchText" class="searchbox-input" name="words"
+               autocomplete="off"
+               placeholder="搜索课程/关键字" @keydown.enter="search">
+      </form>
+    </router-link>
+  </div>
+</template>
+<script>
+import "../../../assets/styles/home.css";
+import {addHistoryArticle} from '../../../api/api';
+export default {
+  data() {
+    return {
+      searchText: '',
+      articleList: [] 
+    }
+  },
+  methods: {
+    async search() {
+      if (this.searchText.trim()) {
+        try {
+          const token = localStorage.getItem('token');
+          if (!token) {
+            throw new Error('Token not found in localStorage');
+          }
+          const response = await addHistoryArticle({
+            token: token,
+            content: this.searchText
+          });
+        } catch (error) {
+          console.log('Error adding comment:', error.message);
+        }
+      }
+      this.$router.push({ path: '/Search', query: { q: this.searchText }});
+    },
+  },
+}
+</script>
+<style scoped>
+</style>
+<template>
+  <div class="swiper-layout">
+    <swiper
+      :spaceBetween="30"
+      :slidesPerView="1"
+      :loop="true"
+      :centeredSlides="true"
+      :pagination="{
+        clickable: true
+      }"
+      :autoplay="{
+        delay: 2500,
+        disableOnInteraction: false
+      }"
+      :navigation="true"
+      :modules="modules"
+      class="mySwiper">
+      <swiper-slide class="swiper-pic">
+        <img class="swiper-img" src="../../../assets/img/home/slider/slider1.jpg" alt="">
+      </swiper-slide>
+      <swiper-slide class="swiper-pic">
+        <img class="swiper-img" src="../../../assets/img/home/slider/slider2.jpg" alt="">
+      </swiper-slide>
+      <swiper-slide class="swiper-pic">
+        <img class="swiper-img" src="../../../assets/img/home/slider/slider3.jpg" alt="">
+      </swiper-slide>
+      <swiper-slide class="swiper-pic">
+        <img class="swiper-img" src="../../../assets/img/home/slider/slider4.jpg" alt="">
+      </swiper-slide>
+      <div class="swiper-button-prev" @click.stop="prevEl(item, index)" />
+      <div class="swiper-button-next" @click.stop="nextEl" />
+    </swiper>
+  </div>
+</template>
+<script setup>
+  import {Swiper, SwiperSlide} from 'swiper/vue';
+  import 'swiper/css/pagination';
+  import 'swiper/css/navigation';
+  import { Autoplay, Pagination, Navigation, Scrollbar} from 'swiper/modules';
+  import headline from './homeHeadline.vue';
+  import {ref} from 'vue';
+  const navigation = ref({
+    nextEl: ".swiper-button-next",
+    prevEl: ".swiper-button-prev"
+  });
+  const modules = [Autoplay, Pagination, Navigation, Scrollbar];
+  const prevEl = (item, index) => {
+  };
+  const nextEl = () =>{
+  };
+  const onSlideChange = (swiper) => {
+  };
+</script>
+<style>
+.swiper-layout{
+  display: flex;
+  flex-direction: column;
+  height: 270px;
+  width: 100%;
+  position: relative;
+}
+.mySwiper{
+  width: 100%;
+}
+.swiper-pic{
+  width: 100%;
+  height: 100%;
+  border-radius: 0 0 100px 100px;
+  border: none;
+  overflow: hidden;
+  position: relative;
+}
+.swiper-pic:after{
+  position: absolute;
+  content: '';
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  border-radius: 0 0 100px 100px;
+  border: none;
+  box-shadow: 0px -10px 10px 10px #F0F0F0 inset;
+}
+.swiper-img{
+  width: 100%;
+  height: 100%;
+}
+</style>
+<template>
+    <div>
+    <BackPage title="拓展"/>
+    <div class="article-layout" style="margin-top: 60px;">
+        <div class="article-title">{{ article.title }}</div>
+        <div class="article-author">作者：{{ article.author }}</div>
+        <div class="article-au">创建时间：{{ this.formatDate(article.created_at) }}</div>
+        <div class="article-au">仅供学习交流，版权归作者所有</div>
+        <div class="article-introduce">
+            <div>&nbsp; &nbsp; {{ article.introduce }}</div>
+        </div>
+        <img :src="article.url" alt="Article Image" class="article-pic" v-if="article.url">
+        <div class="article-mainbody">
+            <div class="article-content" v-for="paragraph in article.paragraphList" :key="paragraph.id">
+                {{ paragraph.content }}
+            </div>
+        </div>
+    </div>
+    </div>
+</template>
+<script>
+import BackPage from "../../BackPage.vue";
+import { getExpandById } from '../../../api/api';
+export default {
+    name: 'expandDetail',
+    components: {
+        BackPage,
+    },
+    data() {
+        return {
+            article: {
+                title: '',
+                author: '',
+                paragraphList: []
+            }
+        }
+    },
+    async created() {
+        const articleId = this.$route.params.id;
+        try {
+            this.article = await getExpandById(articleId);
+        } catch (error) {
+            console.error('Error fetching article:', error);
+        }
+    },
+    methods: {
+        formatDate(isoString) {
+        const dateObj = new Date(isoString);
+        const year = dateObj.getFullYear();
+        const month = ('0' + (dateObj.getMonth() + 1)).slice(-2);
+        const date = ('0' + dateObj.getDate()).slice(-2);
+        const hours = ('0' + dateObj.getHours()).slice(-2);
+        const minutes = ('0' + dateObj.getMinutes()).slice(-2);
+        const seconds = ('0' + dateObj.getSeconds()).slice(-2);
+        return `${year}-${month}-${date} ${hours}:${minutes}:${seconds}`;
+        }
+    }
+};
+</script>
+<style scoped>
+.article-layout{
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding:3%
+}
+.article-title{
+    width: 80%;
+    margin: 0 auto;
+    color:black;
+    font-size: 20px;
+    font-weight:bold;
+    font-family: '华文楷体';
+}
+.article-author{
+    color:black;
+    font-size: 16px;
+    font-family: '华文楷体';
+    margin-bottom: 10px;
+}
+.article-au{
+    color:gray;
+    font-size: 12px;
+    text-align: left;
+    margin-left: 20px;
+    font-family: '华文楷体';
+}
+.article-introduce{
+    width: 90%;
+    margin: 0 auto;
+    text-align: left;
+    color:black;
+    font-size: 14px;
+    font-family: '楷体';
+    border-radius: 20px;
+    padding: 20px;
+}
+.article-pic{
+    width: 90%;
+    margin:0 auto;
+}
+.article-img{
+    width: 100%;
+    border-radius: 10px;
+    opacity: 0.8;
+}
+.article-mainbody{
+    margin-top: 10px;
+    padding: 0 15px;
+}
+.article-content{
+  margin-top: 10px;
+    text-indent: 2em;
+    text-align: justify;
+    word-break: break-all;
+    font:normal normal 16px/1.6em "宋体";
+    line-height: 1.5em;
+    color:#000;
+}
+</style>
+<template>
+    <div>
+    <div class="title">
+        <img src="../../../assets/img/cgrk.png" alt="" class="title-logo">
+        <div class="title-text">
+            推荐学习栏
+        </div>
+    </div>
+    <div class="enter-example">
+        <div class="enter-example-item" v-for="item in exampleList" :key="item.id">
+            <img :src="item.url" alt="Header Image" class="header-image">
+                <!-- 内容区域 -->
+                <div class="enter-example-content">
+                    <div class="enter-example-nav">{{item.subject}} | {{item.point}} | {{ item.author }}</div>
+                    <div class="enter-example-title">{{ item.title }}</div>
+                </div>
+            <div class="enter-example-btn">
+                <RouterLink :to="{ name: 'expandDetail', params: { id: item.id } }">阅读</RouterLink>
+            </div>
+        </div>
+    </div>
+    </div>
+</template>
+<script>
+import {RouterLink} from 'vue-router';
+import '../../../assets/styles/home.css';
+import { expand } from '../../../api/api';
+export default{
+    data(){
+        return {
+            exampleList:[] 
+        }
+    },
+    async created() {
+        try {
+        this.exampleList = await expand();
+        this.exampleList.sort((a, b) => {
+            const dateA = new Date(a.updated_at);
+            const dateB = new Date(b.updated_at);
+            return dateB - dateA;
+            })
+        this.exampleList = this.exampleList.slice(0, 6);
+        } catch (error) {
+        console.error('Error fetching articles:', error);
+        }
+    }
+};
+</script>
+<style>
+.article-img{
+    width: 100%;
+    border-radius: 10px;
+    opacity: 0.8;
+}
+</style>
+<template>
+    <div class="home-picture">
+        <img class="home-picture-img" src="/src/assets/img/Pic.jpg" alt="">
+    </div>
+</template>
+<script>
+</script>
+<style scoped>
+.home-picture{
+    width: 90%;
+    height: 150px;
+    overflow: hidden;
+    border-radius: 20px;
+    margin: 0 auto;
+    opacity: 0.8;
+}
+.home-picture-img{
+    width:100%;
+}
+</style>
+<template>
+    <div>
+    <BackPage title="文章"/>
+    <div class="article-layout" style="margin-top: 60px;">
+        <div class="article-title">{{ article.title }}</div>
+        <div class="article-author">作者：{{ article.author }}</div>
+        <div class="article-au">创建时间：{{ this.formatDate(article.created_at) }}</div>
+        <div class="article-aua">仅供学习交流，版权归作者所有</div>
+        <div class="article-introduce">
+            <div class="text">简要介绍</div>
+            <div>&nbsp; &nbsp; {{ article.introduce }}</div>
+        </div>
+        <img :src="article.url" alt="" class="article-pic" v-if="article.url">
+        <div class="article-mainbody">
+            <div class="article-content" v-for="paragraph in article.paragraphList" :key="paragraph.id">
+                {{ paragraph.content }}
+            </div>
+        </div>
+    </div>
+    </div>
+</template>
+<script>
+import BackPage from "../../BackPage.vue";
+import { getArticleById } from '../../../api/api';
+export default {
+    name: 'ArticleDetail',
+    components: {
+        BackPage,
+    },
+    data() {
+        return {
+            article: {
+                title: '',
+                author: '',
+                paragraphList: []
+            }
+        }
+    },
+    async created() {
+        const articleId = this.$route.params.id;
+        try {
+            this.article = await getArticleById(articleId);
+        } catch (error) {
+            console.error('Error fetching article:', error);
+        }
+    },
+    methods: {
+        formatDate(isoString) {
+        const dateObj = new Date(isoString);
+        const year = dateObj.getFullYear();
+        const month = ('0' + (dateObj.getMonth() + 1)).slice(-2);
+        const date = ('0' + dateObj.getDate()).slice(-2);
+        const hours = ('0' + dateObj.getHours()).slice(-2);
+        const minutes = ('0' + dateObj.getMinutes()).slice(-2);
+        const seconds = ('0' + dateObj.getSeconds()).slice(-2);
+        return `${year}-${month}-${date} ${hours}:${minutes}:${seconds}`;
+        }
+    }
+};
+</script>
+<style scoped>
+.article-layout{
+    display: block;
+    justify-content: center;
+}
+.article-title{
+    color:black;
+    margin: 0 auto;
+    font-weight: bold;
+    width: 70%;
+    font-size: 20px;
+    font-family: '华文楷体';
+}
+.article-author{
+    color:black;
+    font-size: 16px;
+    font-family: '华文楷体';
+    margin-bottom: 10px;
+}
+.article-au{
+    color:gray;
+    font-size: 12px;
+    text-align: left;
+    margin-left: 20px;
+    font-family: '华文楷体';
+}
+.article-aua{
+    color:gray;
+    font-size: 12px;
+    text-align: left;
+    margin-left: 20px;
+    margin-bottom: 10px;
+    font-family: '华文楷体';
+}
+.article-introduce{
+    width: 90%;
+    margin: 0 auto;
+    text-align: left;
+    color:black;
+    font-size: 14px;
+    font-family: '楷体';
+    border-radius: 20px;
+    background-color: white;
+    border-bottom: 1px solid #3495fc;
+    border-right: 1px solid #3495fc;
+    padding: 20px;
+    margin-bottom: 10px;
+}
+.text{
+    font-size: 16px;
+}
+.article-pic{
+    width: 90%;
+    margin:0 auto;
+}
+.article-img{
+    width: 100%;
+    border-radius: 10px;
+    opacity: 0.8;
+}
+.article-mainbody{
+    margin-top: 5px;
+    padding: 0 15px;
+}
+.article-content{
+    padding: 5px;
+    margin-top: 10px;
+    text-indent: 2em;
+    text-align: justify;
+    word-break: break-all;
+    font:normal normal 16px/1.6em "宋体";
+    line-height: 1.5em;
+    color:#000;
+    letter-spacing: 0.05em;
+}
+</style>
+<template>
+  <div class="nav">
+    <div class="nav-item" v-for="item in NavList" :key="item.id">
+      <router-link :to="{ path: item.path }" class="nav-link">
+        <img :src="item.img" alt="图" class="nav-img">
+        <span>{{ item.name }}</span>
+      </router-link>
+    </div>
+  </div>
+</template>
+<script>
+import kc from '../../../assets/img/kc.png'
+import wz from '../../../assets/img/wz.png'
+import tm from '../../../assets/img/tm.png'
+import tuozhan from '../../../assets/img/tuozhan.png'
+export default {
+  data() {
+    return {
+      NavList: [
+        {
+          id: '1',
+          name: '课程资料',
+          path: '/lesson',
+          img: kc
+        },
+        {
+          id: '2',
+          name: '文章精选',
+          path: '/article',
+          img: wz
+        },
+        {
+          id: '3',
+          name: '经典题目',
+          path: '/question',
+          img: tm
+        },
+        {
+          id: '4',
+          name: '趣味拓展',
+          path: '/expand',
+          img: tuozhan
+        }
+      ]
+    }
+  }
+}
+</script>
+<style scoped>
+    .nav{
+        display: flex;
+        flex-wrap: wrap;
+        width: 100%;
+        padding-top: 20.5px;
+    }
+    .nav-item {
+        width: 25%;
+        margin-bottom: 20.5px;
+        border-radius: 50%;
+    }
+    .nav-link{
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        font-size: 14px;
+        color: #2d2d2d;
+    }
+    .nav-img{
+        border-radius: 50%;
+        box-shadow: 10px 5px 10px rgba(0,0,0,0.05);
+        width: 50%;
+        margin-bottom: 5.5px;
+        background-color: #fff;
+    }
+</style>
+<template>
+  <div class="after-search">
+    <BackPage title="搜索结果"/>
+    <div style="margin-top: 50px;">
+    <p>您搜索的内容: {{ $route.query.q }}</p>
+    <ul>
+      <li v-for="(article, index) in articleResults" :key="index" class="lesson-layout-item">
+            <router-link :to="{ name: 'ArticleDetail', params: { id: article.id } }">
+                <div class="lesson-title">{{ article.title }}</div>
+                <div class="lesson-introuduce">{{ article.introduce }}</div>
+                <div class="article-nav">{{article.subject}} | {{article.point}} | {{ article.author }}</div>
+            </router-link>
+      </li>
+      <li v-if="articleResults.length === 0">没有找到相关结果。</li>
+    </ul>
+    </div>
+  </div>
+</template>
+<script>
+import { article,expand } from '../../../api/api'; 
+import BackPage from "../../BackPage.vue";
+import "../../../assets/styles/home.css";
+import "../../../assets/styles/category.css";
+import Header from '../components/homeHeader.vue';
+import searchbox from '../components/homeSearchbox.vue';
+export default {
+    components: {
+        BackPage,
+        Header,
+        searchbox,
+    },
+    setup() {
+        const onClickBack = () => {
+            history.back();
+        };
+        return {
+            onClickBack,
+        };
+    },
+    data() {
+        return {
+            articleResults: [],
+            expandResults: [],
+        };
+    },
+    created() {
+        this.search(); 
+    },
+    methods: {
+        async search() {
+        try {
+            const query = this.$route.query.q; 
+            const data = await article(query); 
+            const data1 = await expand(query); 
+            this.articleResults = data; 
+            this.expandResults = data1; 
+            console.log(this.articleResults)
+        } catch (error) {
+            console.error('Error fetching search results:', error);
+        }
+        }
+    }
+};
+</script>
+<style scoped>
+.lesson-layout{
+    margin-bottom: 50px;
+    scroll-snap-type: y mandatory;
+}
+.lesson-layout-item{
+    display: flex;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    margin-top: 2px;
+    width: 100%;
+    height: 130px;
+    border-radius: 20px;
+    background-color: #e0efff;
+    border-bottom: 1px solid #3495fc;
+    justify-items: center;
+}
+.lesson-title{
+margin-top: 20px;
+margin-left: 25px;
+width: 80%;
+font-family: '华文新魏';
+font-size: 24px;
+text-align: left;
+word-break: break-all;
+overflow: hidden;
+display: -webkit-box;
+-webkit-line-clamp: 1;
+-webkit-box-orient: vertical;
+ color:black;
+}
+.lesson-introuduce{
+margin-left: 23px;
+width: 80%;
+color:black;
+word-break: break-all;
+overflow: hidden;
+display: -webkit-box;
+-webkit-line-clamp: 1;
+-webkit-box-orient: vertical;
+font-size: 17px;
+}
+</style>
+<template>
+    <div>
+    <BackPage title="经典题目"/>
+    <div class="lesson-layout" style="margin-top: 40px;">
+      <div style="height: 3px;background-color: white;"></div>
+        <div v-for="question in questionList" :key="question.id" class="lesson-layout-item">
+            <router-link :to="{ name: 'a', params: { id: question.id } }" style="width: 100%;">
+                <div class="lesson-introuduce">{{ question.introduce }}</div>
+                <div class="article-nav">{{question.source}} | {{question.point}}</div>
+            </router-link>
+        </div>
+    </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+import BackPage from "../../BackPage.vue";
+import axios from 'axios';
+export default {
+    components: {
+        BackPage,
+    },
+    data() {
+        return {
+            questionList: [],
+            loading: false, 
+        };
+    },
+    created() {
+        this.fetchQuestions(); 
+    },
+    methods: {
+        async fetchQuestions() {
+            try {
+                this.loading = true; 
+                const response = await axios.get('http:
+                if (response.status === 200) { 
+                    this.questionList = response.data;
+                    console.log(this.questionList)
+                }
+            } catch (error) {
+                console.error('Failed to fetch questions:', error);
+            } finally {
+                this.loading = false; 
+            }
+        },
+    },
+};
+</script>
+<style scoped>
+.lesson-layout {
+    margin-bottom: 50px;
+    scroll-snap-type: y mandatory;
+    background-color: white;
+}
+.lesson-layout-item {
+    display: flex;
+    margin: 0 auto;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    margin-top: 8px;
+    width: 92%;
+    height: 110px;
+    border-radius: 50px;
+    background-color: #e0efff;
+    border-bottom: 1px solid #3495fc;
+    position: relative;
+    overflow: hidden;
+  align-items: center;
+}
+.lesson-introuduce {
+  position: relative;
+    margin-left: 40px;
+    font-size: 16px;
+    color: black;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    word-wrap: break-word;
+    text-align: left;
+}
+.article-nav {
+    font-size: 12px;
+    text-align: center;
+    color: #333;
+    margin-top: auto;
+    align-self: flex-end;
+    position: absolute;
+    bottom: 10px;
+    right: 30px;
+}
+</style>
+<template>
+    <div>
+        <BackPage title="课程资料"/>
+        <div class="course" style="margin-top: 20px;">
+            <ul class="course-list">
+                <li class="course-item" v-for="item in courseList" :key="item.id">
+                    <RouterLink :to="{ name: 'ArticleDetail', params: { id: item.id } }">
+                        <div class="course-pic">
+                            <img :src="item.url" alt="图片" class="course-img">
+                        </div>
+                        <div class="course-info">
+                            <div class="course-name">{{ item.title }}</div>
+                            <div class="course-content">{{ item.introduce }}</div>
+                        </div>
+                    </RouterLink>
+                </li>
+            </ul>
+        </div>
+    </div>
+</template>
+<script>
+import BackPage from "../../BackPage.vue";
+import { article } from '../../../api/api';
+export default {
+    components: {
+        BackPage,
+    },
+    data() {
+        return {
+            courseList: []
+        };
+    },
+    async created() {
+        try {
+            const data = await article();
+            this.courseList = data.filter(item => item.label === '学习资料').slice(-16);
+        } catch (error) {
+            console.error('Error fetching articles:', error);
+        }
+    },
+};
+</script>
+<style scoped>
+.course {
+    padding: 20px 0 0 0;
+    margin-bottom: 40px;
+    justify-content: center;
+}
+.course-list {
+    width: 90%;
+    margin: 0px auto;
+    display: flex;
+    flex-wrap: wrap;
+}
+.course-item {
+    background-color: white;
+    width: 48%;
+    margin: 5px auto;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    box-shadow: 0 4px 4px rgba(0, 0, 0, 0.1);
+    position: relative; 
+    overflow: hidden; 
+    display: flex; 
+    flex-direction: column; 
+}
+.course-pic {
+    text-align: center;
+    height: 80px; 
+}
+.course-img {
+    width: 100%;
+    height: 100%; 
+    object-fit: cover; 
+    border-radius: 8px;
+}
+.course-info {
+    padding: 0px 0;
+}
+.course-name {
+    margin: 8px auto;
+    line-height: 20px;
+    color: #333;
+    font-size: 15px;
+    font-weight: bold;
+    text-align: center;
+}
+.course-content {
+    margin: 0 auto;
+    line-height: 20px;
+    color: #595959;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    word-wrap: break-word;
+    text-align: left;
+}
+</style>
+<template>
+    <div>
+        <BackPage title="趣味拓展"/>
+        <div class="question" style="margin-top: 40px;">
+            <ul class="course-list">
+                <li class="question-item" v-for="item in questionList" :key="item.id">
+                    <RouterLink :to="{ name: 'expandDetail', params: { id: item.id } }" class="question-link">
+                        <div class="question-item-content">
+                            <div class="question-pic">
+                                <img :src="item.url" alt="" class="course-img">
+                            </div>
+                            <div class="question-content">
+                                <p class="question-name">{{ item.title }}</p>
+                                <p class="course-content">{{ item.introduce }}</p>
+                            </div>
+                        </div>
+                    </RouterLink>
+                </li>
+            </ul>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/home.css";
+import BackPage from "../../BackPage.vue";
+import { expand } from '../../../api/api';
+export default{
+    components: {
+        BackPage,
+    },
+    data(){
+        return {
+            questionList:[] 
+        }
+    },
+    async created() {
+        try {
+        this.questionList = await expand(); 
+        } catch (error) {
+        console.error('Error fetching articles:', error);
+        }
+    }
+};
+</script>
+<style scoped>
+.question {
+    width: 100%;
+    margin-bottom: 40px;
+    margin-top: 15px;
+}
+.course-list {
+    list-style-type: none;
+    padding: 0;
+}
+.question-item {
+    margin-top: 10px; 
+    background-color: #fff;
+    align-items: center;
+    justify-content: center;
+}
+.question-link {
+    text-decoration: none; 
+    color: inherit; 
+}
+.question-item-content {
+    width: 100%;
+    display: flex; 
+    align-items: flex-start; 
+    align-items: center;
+    justify-content: center;
+}
+.question-pic {
+    width: 30%; 
+    margin-right: 20px; 
+}
+.question-content {
+    width: 50%; 
+}
+.question-name {
+    font-size: 18px;
+    color: black;
+    font-family: '微软雅黑';
+    margin: 0; 
+}
+.course-content {
+    margin-top: 5px;
+    font-size: 12px;
+    color: #666;
+    margin: 0; 
+}
+.course-img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+</style>
+<template>
+    <div id="app" class="headline">
+        <div class="headline-title">·课程头条·</div>
+        <div class="headline-content">快来做实验啦</div>
+        <img class="headline-img" src="/src/assets/img/tt.png" alt="">
+    </div>
+</template>
+<script>
+</script>
+<style scoped>
+.headline{
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    height: 34px;
+    width: 89%;
+    padding: 0 20px;
+    align-items: center;
+    border: 1px solid;
+    border-radius: 27.5px;
+    border-color: #3495fc;
+    box-shadow: 0 5px 10px 0 rgba(0,0,0,0.05);
+}
+.headline-title{
+  position: absolute;
+  left: 30px;
+  width: 130px;
+  color: #3495fc;
+  font-size: 24px;
+}
+.headline-content{
+  position: absolute;
+  left: 170px;
+  text-align: center;
+}
+.headline-img{
+  position: absolute;
+  transform: rotateY(180deg);
+  right: 35px;
+  height: 25px;
+}
+</style>
+<template>
+    <div>
+        <BackPage title="文章精选"/>
+        <div class="lesson-layout" style="margin-top: 40px;">
+            <div style="height: 3px;background-color: #e0efff;"></div>
+            <div v-for="article in articleList" :key="article.id" class="lesson-layout-item">
+                <router-link :to="{ name: 'ArticleDetail', params: { id: article.id } }" class="lesson-link">
+                    <div class="lesson-image">
+                        <img :src="article.url" alt="文章图片" class="lesson-img">
+                    </div>
+                    <div class="lesson-content">
+                        <div class="lesson-title">{{ article.title }}</div>
+                        <div class="lesson-introuduce">{{ article.introduce }}</div>
+                        <div class="article-nav">{{ article.subject }} | {{ article.point }} | {{ article.author }}</div>
+                    </div>
+                </router-link>
+            </div>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/home.css";
+import "../../../assets/styles/category.css";
+import BackPage from "../../BackPage.vue";
+import { article } from '../../../api/api';
+export default {
+    components: {
+        BackPage,
+    },
+    data() {
+        return {
+            articleList: [],
+        };
+    },
+    async created() {
+            const data = await article();
+            const filteredData = data.filter(item => item.label === '知识详解');
+            this.articleList = filteredData.slice(-10);
+    },
+};
+</script>
+<style scoped>
+.lesson-layout {
+    margin-bottom: 50px;
+    scroll-snap-type: y mandatory;
+    background-color: #e0efff;
+}
+.lesson-layout-item {
+    display: flex;
+    margin: 0 auto;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    margin-top: 8px;
+    width: 92%;
+    height: 110px;
+    border-radius: 50px;
+    background-color: white;
+    border-bottom: 1px solid #3495fc;
+    justify-content: flex-start;
+    position: relative;
+    overflow: hidden;
+}
+.lesson-link {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    text-decoration: none;
+    color: inherit;
+}
+.lesson-image {
+    flex: 0 0 120px; 
+    overflow: hidden;
+    border-top-left-radius: 20px;
+    border-bottom-left-radius: 20px;
+    display: flex;
+    align-items: center; 
+    justify-content: center; 
+}
+.lesson-img {
+    width: 80%; 
+    height: 80%; 
+    object-fit: cover;
+    border-radius: 50%; 
+}
+.lesson-content {
+    flex: 1;
+    padding: 5px;
+    display: flex;
+    flex-direction: column;
+}
+.lesson-title {
+    font-family: '华文新魏';
+    font-size: 20px;
+    text-align: left;
+    color: black;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 10px;
+    margin-left: 5px;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    word-wrap: break-word;
+    text-align: left;
+}
+.lesson-introuduce {
+    margin-left: 5px;
+    font-size: 14px;
+    color: gray;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    word-wrap: break-word;
+    text-align: left;
+}
+.article-nav {
+    font-size: 12px;
+    text-align: center;
+    color: #333;
+    margin-top: auto;
+    align-self: flex-end;
+    position: absolute;
+    bottom: 10px;
+    right: 30px;
+}
+</style>
+<template>
+    <div id="app">
+        <div class="header">
+            <searchbox/>
+        </div>
+    </div>
+</template>
+<script>
+  import searchbox from "./homeSearchbox.vue"
+  export default {
+    name: "app",
+    components: {
+      searchbox
+    },
+  }
+</script>
+<style scoped>
+.header{
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 58px;
+}
+</style>
+<template>
+    <div class="index-layout">
+        <div class="header-layout">
+            <van-nav-bar left-text="返回" left-arrow @click-left="onClickBack">
+                <template #title>
+                    <searchbox/>
+                </template>
+            </van-nav-bar>
+        </div>
+        <div style="padding: 1em;">
+        <div class="history-layout">
+            <div class="history-title1">
+                <span>历史记录</span>
+                <van-icon class="history-icon" name="delete-o" color="black"/>
+            </div>
+            <div class="history-item">
+                <!-- 如果有历史记录，则显示记录 -->
+                <template v-if="sortedLatest.length > 0">
+                    <router-link v-for="item in sortedLatest" :key="item.id" :to="{ path: '/Search', query: { q: item.content }}">
+                        <van-tag :show="item.show" closeable @close="close" plain round type="primary">{{ item.content }}</van-tag>
+                    </router-link>
+                </template>
+                <!-- 如果没有历史记录，则显示“无历史记录” -->
+                <template v-else>
+                    <div style="margin-left: 3%;color:gray">无历史记录</div>
+                </template>
+            </div>
+        </div>
+        <div class="history-layout">
+            <div class="history-title">
+                <span>猜你想搜</span>
+                <van-icon class="history-icon" name="replay" color="black"/>
+            </div>
+            <van-grid clickable :column-num="2" :border="false" :center="false">
+                <van-grid-item v-for="guess in guessList" :key="guess.id" @click="search(guess)"  class="guess-item" :text="guess.text" />
+            </van-grid>
+        </div>
+        </div>
+    </div>
+</template>
+<script>
+import BackPage from "../../BackPage.vue";
+import "../../../assets/styles/home.css"
+import Header from '../components/homeHeader.vue';
+import searchbox from '../components/homeSearchbox.vue';
+import {ref} from 'vue';
+import {historyarticle,GetID,guess,addHistoryArticle} from '../../../api/api';
+export default {
+    components: {
+        BackPage,
+        Header,
+        searchbox,
+    },
+    data() {
+        return {
+            show: true,
+            historyList: [],
+            guessList: []
+        };
+    },
+    methods: {
+        async showSearchHistory() {
+            try {
+                const token = localStorage.getItem('token');
+                if (!token) {
+                    throw new Error('Token not found in localStorage');
+                }
+                const userid = await GetID({ token });
+                const id = userid.data.userId;
+                const data = await historyarticle();
+                const data2 = await guess();
+                this.guessList = data2
+                const filteredData = data.filter(item => parseInt(item.userid) === id);
+                this.historyList = filteredData;
+            } catch (error) {
+                console.error('Error fetching articles:', error);
+            }
+        },
+        close() {
+            this.show = false;
+        },
+        onClickBack() {
+            history.back();
+        },
+        async search(guess) {
+        if (guess) {
+            try {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                throw new Error('Token not found in localStorage');
+            }
+            const response = await addHistoryArticle({
+                token: token,
+                content: guess.text
+            });
+            } catch (error) {
+            console.log('Error adding comment:', error.message);
+            }
+        }
+        this.$router.push({ path: '/Search', query: { q: guess.text } });
+        },
+    },
+    mounted() {
+        this.showSearchHistory();
+    },
+    computed: {
+        sortedLatest() {
+            return this.historyList.slice(-6).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    }
+  }
+};
+</script>
+<style scoped>
+  .history-title1{
+    margin-top: -10px;
+    margin-left: 10px;
+    width: 100%;
+    font-size: 30px;
+    text-align: left;
+  }
+  .history-title{
+    margin-top: 10px;
+    margin-left: 10px;
+    width: 100%;
+    font-size: 30px;
+    text-align: left;
+  }
+  .history-item{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin-top: 2px;
+    margin-left: 2px;
+    border: 1px black;
+  }
+  .guess-item{
+    text-align: left;
+  }
+  :deep(.van-grid){
+    margin-left: 10px;
+  }
+  :deep(.van-grid-item){
+    height: 40px;
+    line-height: 40px;
+    font-size: 18px;
+  }
+  :deep(.van-tag){
+    margin-top: 10px;
+    margin-left: 10px;
+    padding: 5px;
+  }
+  .van-grid-item {
+  padding-left: 10px; 
+  border: 1px solid #ccc; 
+  border-radius: 4px; 
+  background-color: white; 
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); 
+}
+.van-grid-item:hover {
+  border-color: #007bff; 
+  background-color: #ccc; 
+}
+</style>
+<template>
+    <div>
+    <div class="title">
+        <img src="../../../assets/img/cgrk.png" alt="" class="title-logo">
+        <div class="title-text">
+            闯关入口
+        </div>
+    </div> 
+    <div class="enter-example">
+        <div class="enter-item" v-for="(item, index) in exampleList" :key="item.id">
+            <img :src="getImagePath(index + 1)" alt="Example Image" class="example-image">
+            <div class="enter-title">{{ item.title }}</div>
+            <div class="enter-example-btn">
+                <RouterLink :to="{ name: 'Challenge', params: { id: item.id } }" class="link-style">开始</RouterLink>
+            </div>
+        </div>
+    </div>
+    </div>
+</template>
+<script>
+import {RouterLink} from 'vue-router';
+import '../../../assets/styles/home.css';
+import example1 from '../../../assets/img/enter/1.png';
+import example2 from '../../../assets/img/enter/2.png';
+import example3 from '../../../assets/img/enter/3.png';
+import example4 from '../../../assets/img/enter/4.png';
+import example5 from '../../../assets/img/enter/5.png';
+import example6 from '../../../assets/img/enter/6.png';
+export default{
+    data(){
+        return {
+            exampleList:[
+                {
+                    id: '1',
+                    title: '第一关',
+                },
+                {
+                    id: '2',
+                    title: '第二关',
+                },
+                {
+                    id: '3',
+                    title: '第三关',
+                },
+                {
+                    id: '4',
+                    title: '第四关',
+                },
+                {
+                    id: '5',
+                    title: '第五关',
+                },
+                {
+                    id: '6',
+                    title: '第六关',
+                },
+            ] 
+        }
+    },
+    methods: {
+       getImagePath(index) {
+           switch(index) {
+               case 1:
+                   return example1;
+               case 2:
+                   return example2;
+               case 3:
+                   return example3;
+               case 4:
+                   return example4;
+               case 5:
+                   return example5;
+               case 6:
+                   return example6;
+               default:
+                   return '';
+           }
+       }
+   }
+}
+</script>
+<style scoped>
+.enter-example {
+    display: flex;
+    overflow-x: scroll;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    height: 170px;
+}
+.enter-item {
+    position: relative;
+    margin-right: 2px;
+    flex-shrink: 0;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    height: 165px;
+    width: 200px;
+    background-color: white;
+    border-radius: 20px;
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+}
+.example-image {
+    width: 100%;
+    height: 130px;
+    object-fit: cover;
+    border-radius: 20px 20px 0 0; 
+}
+.enter-title {
+    width: 100px;
+    font-size: 18px;
+    position: absolute;
+    font-weight: bold;
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+    border-radius: 20px;
+    margin-top: 12px;
+    left:0%
+}
+.enter-example-btn{
+    width: 60px;
+    margin: 0 auto;
+    font-size: 12px;
+    position: relative;
+    font-weight: bold;
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    border-radius: 20px;
+    margin-top: 5px;
+    border: 2px solid #3498db;
+    background-color: white;
+    margin-bottom: 10px;
+}
+.enter-example-btn .link-style {
+    color: black;
+}
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in Nav34List" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="lesson.path">
+                <div class="lesson-title">{{ lesson.name }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{lesson.subject}} | {{lesson.point}} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+export default{
+    data(){
+        return {
+            Nav34List:[
+                {
+                    id: '1',
+                    name: '课程1',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '2',
+                    name: '课程2',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '3',
+                    name: '课程3',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '4',
+                    name: '课程4',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '5',
+                    name: '课程5',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '6',
+                    name: '课程6',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '7',
+                    name: '课程7',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+            ] 
+        }
+    }
+}
+</script>
+<style scoped>
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in Nav33List" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="{ name: 'expandDetail', params: { id: lesson.id } }">
+                <div class="lesson-title">{{ lesson.title }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{lesson.subject}} | {{lesson.point}} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+import { expand } from '../../../api/api';
+export default {
+    data() {
+        return {
+            Nav33List: []
+        };
+    },
+    async created() {
+        try {
+            const response = await expand();
+            this.Nav33List = response
+        } catch (error) {
+            console.error('Error fetching article:', error);
+        }
+    },
+    computed: {
+        sortedLatest() {
+            return this.Nav33List.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        }
+    }
+};
+</script>
+<style scoped>
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in sortedLatest" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="{ name: 'ArticleDetail', params: { id: lesson.id } }">
+                <div class="lesson-title">{{ lesson.title }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{lesson.subject}} | {{lesson.point}} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+import { article } from '../../../api/api';
+export default {
+    data() {
+        return {
+            Nav32List: []
+        };
+    },
+    async created() {
+        try {
+            const response = await article();
+            this.Nav32List = response.filter(item => item.label === '经验分享')
+        } catch (error) {
+            console.error('Error fetching article:', error);
+        }
+    },
+    computed: {
+        sortedLatest() {
+            return this.Nav32List.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        }
+    }
+};
+</script>
+<style scoped>
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in sortedLatest" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="{ name: 'ArticleDetail', params: { id: lesson.id } }">
+                <div class="lesson-title">{{ lesson.title }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{ lesson.subject }} | {{ lesson.point }} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+import { article } from '../../../api/api';
+export default {
+    data() {
+        return {
+            Nav31List: []  
+        }
+    },
+    async created() {
+        try {
+            const response = await article();
+            this.Nav31List = response
+        } catch (error) {
+            console.error('Error fetching article:', error);
+        }
+    },
+    computed: {
+        sortedLatest() {
+            return this.Nav31List.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        }
+    }
+}
+</script>
+<style scoped>
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in Nav24List" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="lesson.path">
+                <div class="lesson-title">{{ lesson.name }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{lesson.subject}} | {{lesson.point}} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+export default{
+    data(){
+        return {
+            Nav24List:[
+                {
+                    id: '1',
+                    name: '课程1',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '2',
+                    name: '课程2',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '3',
+                    name: '课程3',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '4',
+                    name: '课程4',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '5',
+                    name: '课程5',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '6',
+                    name: '课程6',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '7',
+                    name: '课程7',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+            ] 
+        }
+    }
+}
+</script>
+<style scoped>
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in Nav23List" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="lesson.path">
+                <div class="lesson-title">{{ lesson.name }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{lesson.subject}} | {{lesson.point}} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+export default{
+    data(){
+        return {
+            Nav23List:[
+                {
+                    id: '1',
+                    name: '课程1',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '2',
+                    name: '课程2',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '3',
+                    name: '课程3',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '4',
+                    name: '课程4',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '5',
+                    name: '课程5',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '6',
+                    name: '课程6',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+                {
+                    id: '7',
+                    name: '课程7',
+                    subject: '生物',
+                    point: '基因工程',
+                    author: 'xxx',
+                    path: '/articleDetail',
+                    introduce: '课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍课程介绍'
+                },
+            ] 
+        }
+    }
+}
+</script>
+<style scoped>
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in Nav22List" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="lesson.path">
+                <div class="lesson-title">{{ lesson.title }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{lesson.subject}} | {{lesson.point}} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+import { article } from '../../../api/api';
+export default{
+    data(){
+        return {
+            Nav22List:{}
+        }
+    },
+    async created() {
+        try {
+            this.Nav22List = await article();
+            this.Nav22List = this.Nav22List.slice(-10)
+        } catch (error) {
+            console.error('Error fetching article:', error);
+        }
+    }
+}
+</script>
+<style scoped>
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in Nav21List" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="{ name: 'ArticleDetail', params: { id: lesson.id } }">
+                <div class="lesson-title">{{ lesson.title }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{lesson.subject}} | {{lesson.point}} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+import { article } from '../../../api/api';
+export default {
+    data() {
+        return {
+            Nav21List: []
+        };
+    },
+    async created() {
+        try {
+            const data = await article();
+            this.Nav21List = data.filter(item => item.label === '经验分享');
+        } catch (error) {
+            console.error('Error fetching article:', error);
+        }
+    }
+};
+</script>
+<style scoped>
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in Nav14List" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="{ name: 'ArticleDetail', params: { id: lesson.id } }">
+                <div class="lesson-title">{{ lesson.title }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{lesson.subject}} | {{lesson.point}} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+import { article } from '../../../api/api';
+export default {
+    data() {
+        return {
+            Nav14List: []
+        };
+    },
+    async created() {
+        try {
+            const data = await article();
+            this.Nav14List = data.filter(item => item.label === '经验分享');
+        } catch (error) {
+            console.error('Error fetching article:', error);
+        }
+    }
+};
+</script>
+<style scoped>
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in Nav13List" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="{ name: 'ArticleDetail', params: { id: lesson.id } }">
+                <div class="lesson-title">{{ lesson.title }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{lesson.subject}} | {{lesson.point}} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+import { article } from '../../../api/api';
+export default {
+    data() {
+        return {
+            Nav13List: []
+        };
+    },
+    async created() {
+        try {
+            const data = await article();
+            this.Nav13List = data.filter(item => item.label === '知识详解');
+        } catch (error) {
+            console.error('Error fetching article:', error);
+        }
+    }
+};
+</script>
+<style scoped>
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in Nav12List" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="{ name: 'ArticleDetail', params: { id: lesson.id } }">
+                <div class="lesson-title">{{ lesson.title }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{lesson.subject}} | {{lesson.point}} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+import { article } from '../../../api/api';
+export default {
+    data() {
+        return {
+            Nav12List: []
+        };
+    },
+    async created() {
+        try {
+            const data = await article();
+            this.Nav12List = data.filter(item => item.label === '学习资料').slice(-20);
+        } catch (error) {
+            console.error('Error fetching article:', error);
+        }
+    }
+};
+</script>
+<style scoped>
+</style>
+<template>
+    <div class="lesson-layout">
+        <div v-for="lesson in Nav11List" :key="lesson.id" class="lesson-layout-item">
+            <router-link :to="{ name: 'ArticleDetail', params: { id: lesson.id } }">
+                <div class="lesson-title">{{ lesson.title }}</div>
+                <div class="lesson-introuduce">{{ lesson.introduce }}</div>
+                <div class="article-nav">{{lesson.subject}} | {{lesson.point}} | {{ lesson.author }}</div>
+            </router-link>
+        </div>
+    </div>
+</template>
+<script>
+import "../../../assets/styles/category.css";
+import "../../../assets/styles/home.css";
+import { article } from '../../../api/api';
+export default{
+    data(){
+        return {
+            Nav11List:{}
+        }
+    },
+    async created() {
+        try {
+            this.Nav11List = await article();
+        } catch (error) {
+            console.error('Error fetching article:', error);
+        }
+    }
+}
+</script>
+<style scoped>
+</style>
+<template>
+    <el-container>
+       <el-aside width="28%">
+            <el-menu
+            default-active='/Nav31'
+            :key="index"
+            router>
+            <el-menu-item v-for="(item, index) in Nav3List" :index="item.path">
+                    {{item.title}}
+                </el-menu-item>
+            </el-menu>
+        </el-aside>
+        <el-main class="main-layout">
+            <router-view></router-view>  
+        </el-main> 
+    </el-container>
+</template>
+<script setup>
+import "../../../assets/styles/category.css";
+import {reactive} from 'vue';
+import { RouterView } from 'vue-router';
+var Nav3List = reactive([
+{
+    title: "文章",
+    path: "/Nav31",
+},
+{
+    title: "经验分享",
+    path: "/Nav32",
+},
+{
+    title: "拓展",
+    path: "/Nav33",
+},
+])
+</script>
+<style scoped>
+.el-aside{
+    position: fixed;
+    top: 108px;
+    height: 100%;
+}
+.el-container{
+    height: 100%;
+}
+.el-menu{
+    height: 100%;
+}
+</style>
+<template>
+    <el-container>
+       <el-aside width="28%">
+            <el-menu
+            default-active='/Nav21'
+            :key="index"
+            router>
+            <el-menu-item v-for="(item, index) in Nav2List" :index="item.path">
+                    {{item.title}}
+                </el-menu-item>
+            </el-menu>
+        </el-aside>
+        <el-main class="main-layout">
+            <router-view></router-view>  
+        </el-main> 
+    </el-container>
+</template>
+<script setup>
+import "../../../assets/styles/category.css";
+import {reactive} from 'vue';
+import { RouterView } from 'vue-router';
+var Nav2List = reactive([
+{
+    title: "全部",
+    path: "/Nav21",
+},
+{
+    title: "推荐",
+    path: "/Nav22",
+},
+])
+</script>
+<style scoped>
+.el-aside{
+    position: fixed;
+    top: 108px;
+    height: 100%;
+}
+.el-container{
+    height: 100%;
+}
+.el-menu{
+    height: 100%;
+}
+</style>
+<template>
+    <el-container>
+       <el-aside width="28%">
+            <el-menu
+            default-active='/Nav11'
+            :key="index"
+            router>
+            <el-menu-item v-for="(item, index) in Nav1List" :index="item.path">
+                    {{item.title}}
+                </el-menu-item>
+            </el-menu>
+        </el-aside>
+        <el-main class="main-layout">
+            <router-view></router-view>  
+        </el-main> 
+    </el-container>
+</template>
+<script setup>
+import "../../../assets/styles/category.css";
+import {reactive} from 'vue';
+import { RouterView } from 'vue-router';
+var Nav1List = reactive([
+{
+    title: "全部",
+    path: "/Nav11",
+},
+{
+    title: "学习资料",
+    path: "/Nav12",
+},
+{
+    title: "知识详解",
+    path: "/Nav13",
+},
+])
+</script>
+<style scoped>
+.el-aside{
+    position: fixed;
+    top: 108px;
+    height: 100%;
+}
+.el-container{
+    height: 100%;
+}
+.el-menu{
+    height: 100%;
+}
+</style>
+<template>
+  <el-menu
+  default-active='/Nav1'
+  mode="horizontal"
+  :key = "index"
+  router>
+    <el-menu-item v-for = "(item, index) in NavTopList" :index="item.path">
+      {{item.title}}
+    </el-menu-item>
+  </el-menu>
+</template>
+<script setup>
+import {reactive} from 'vue';
+var NavTopList = reactive([
+{
+  title: '课程',
+  path: '/Nav1',
+},
+{
+  title: '分享',
+  path: '/Nav2',
+},
+{
+  title: '最新',
+  path: '/Nav3',
+},
+])
+</script>
+<style scoped>
+.el-menu
+{
+  margin: 0;
+}
+:deep(.el-menu-item)
+{
+  width: 28%;
+  margin: 0;
+  padding: 0;
+}
+</style>

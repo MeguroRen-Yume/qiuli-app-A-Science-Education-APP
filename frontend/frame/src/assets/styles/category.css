@@ -1,0 +1,52 @@
+.nav-aside-layout{
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+}
+.main-layout{
+    padding: 0;
+    position: absolute;
+    left: 28%;
+}
+
+.lesson-layout{
+    margin-bottom: 50px;
+    scroll-snap-type: y mandatory;
+}
+.lesson-layout-item{
+    display: flex;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    margin-top: 2px;
+    width: 100%;
+    height: 130px;
+    border-radius: 20px;
+    background-color: #e0efff;
+    border-bottom: 1px solid #3495fc;
+    justify-items: center;
+}
+.lesson-title{
+margin-top: 40px;
+margin-left: 25px;
+width: 80%;
+font-family: '华文新魏';
+font-size: 20px;
+text-align: left;
+word-break: break-all;
+overflow: hidden;
+display: -webkit-box;
+-webkit-line-clamp: 1;
+-webkit-box-orient: vertical;
+ color:black;
+}
+.lesson-introuduce{
+margin-left: 23px;
+width: 80%;
+color:black;
+word-break: break-all;
+overflow: hidden;
+display: -webkit-box;
+-webkit-line-clamp: 1;
+-webkit-box-orient: vertical;
+font-size: 17px;
+}
