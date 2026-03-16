@@ -1,0 +1,886 @@
+const crypto = require('crypto');
+const secret = crypto.randomBytes(32).toString('hex');
+module.exports = {
+    jwtSecret: secret
+};
+const express = require('express');
+const app = express();
+const port = 3001;
+const routes = require('./src/routes');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const config = require('./config');
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(cors({
+    origin: '*', 
+}));
+app.use(express.json()); 
+app.use('/', routes); 
+app.listen(port, () => {
+    console.log(`Example app listening on port ${port}`);
+});
+const jwt = require('jsonwebtoken');
+const { jwtSecret } = require('../../config');
+const jwtCheck = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    if (typeof authHeader !== 'undefined') {
+        const token = authHeader.split(' ')[1];
+        jwt.verify(token, jwtSecret, (err, decoded) => {
+            if (err) {
+                console.error('JWT verification failed', err);
+                res.status(403).json({ error: 'JWT verification failed' });
+            } else {
+                req.user = decoded; 
+                next();
+            }
+        });
+    } else {
+        res.status(401).json({ error: 'Authorization header is missing' });
+    }
+};
+module.exports = { jwtCheck };
+const jwt = require('jsonwebtoken');
+const { jwtSecret } = require('../../config');
+async function getUserId(token) {
+    try {
+        const decoded = jwt.verify(token, jwtSecret);
+        if (isTokenExpired(decoded)) {
+            console.log('Token has expired.');
+            throw new Error('TokenExpiredError'); 
+        }
+        return decoded.userId;
+    } catch (err) {
+        console.error('Failed to verify token:', err);
+        throw new Error('TokenInvalidError'); 
+    }
+}
+function isTokenExpired(decodedToken) {
+    if (!decodedToken.exp) return false; 
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    return decodedToken.exp < nowSeconds;
+}
+module.exports = getUserId;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/mysql');
+router.get('/', (req, res) => {
+    db.query('SELECT * FROM expand', (error, results, fields) => {
+        if (error) {
+            console.error('Failed to query database', error);
+            res.status(500).send('Failed to query database');
+            return;
+        }
+        res.send(results);
+    });
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId = require('../util/tokenValidator');
+router.post('/', async (req, res) => {
+    const { token } = req.body;
+    if (!token) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        res.status(201).json({ success: true, userId });  
+    } catch (error) {
+        console.error('处理请求时发生错误:', error);
+        res.status(500).json({ success: false, message: '服务器内部错误' });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId  = require('../util/tokenValidator');
+router.get('/', async (req, res) => {
+    try {
+        const [results, fields] = await db.execute('SELECT * FROM comments');
+        res.send(results);
+    } catch (error) {
+        console.error('Failed to query database', error);
+        res.status(500).send('Failed to query database');
+    }
+});
+router.post('/', async (req, res) => {
+    const { token, postid, content } = req.body;
+    if (!token || !postid || !content) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const insertCommentSql = 'INSERT INTO comments (userid, postid, content) VALUES (?, ?, ?)';
+        const insertCommentParams = [userId, postid, content];
+        await db.execute(insertCommentSql, insertCommentParams);
+        res.status(201).json({ success: true });
+    } catch (error) {
+        console.error('Failed to insert comment into database', error);
+        res.status(500).json({ success: false, message: 'Failed to insert comment into database', error: error.message });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId = require('../util/tokenValidator');
+router.get('/', async (req, res) => {
+    try {
+        const [results] = await db.execute('SELECT * FROM click');
+        res.send(results);
+    } catch (error) {
+        console.error('Failed to query database', error);
+        res.status(500).send('无法获取数据');
+    }
+});
+router.post('/', async (req, res) => {
+    const { token, postid } = req.body;
+    if (!token || !postid) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const [postResults] = await db.query('SELECT click FROM posts WHERE id = ?', [postid]);
+        if (postResults.length === 0) {
+            return res.status(404).json({ success: false, message: '帖子不存在。' });
+        }
+        const currentLikes = postResults[0].click;
+        const newLikes = currentLikes + 1;
+        await db.query('UPDATE posts SET click = ? WHERE id = ?', [newLikes, postid]);
+        const [clickResults] = await db.query('SELECT * FROM click WHERE userid = ? AND postid = ?', [userId, postid]);
+        if (clickResults.length > 0) {
+            await db.query('UPDATE click SET created_at = CURRENT_TIMESTAMP WHERE userid = ? AND postid = ?', [userId, postid]);
+        } else {
+            await db.query('INSERT INTO click (userid, postid) VALUES (?, ?)', [userId, postid]);
+        }
+        res.status(201).json({ success: true });
+    } catch (error) {
+        console.error('Failed to process like', error);
+        res.status(500).json({ success: false, message: '处理失败。' });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId  = require('../util/tokenValidator');
+router.get('/', (req, res) => {
+    res.send('This is the choose page');
+});
+router.post('/', async (req, res) => {
+    const { token, identity } = req.body;
+    if (!token || !identity) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const postIdentitySql = 'UPDATE users SET identity = ? WHERE id = ?';
+        const postidentity = [identity, userId];
+        await db.execute(postIdentitySql, postidentity);
+        res.status(201).json({ success: true });
+    } catch (error) {
+        console.error('Failed to choose identity into database', error);
+        res.status(500).json({ success: false, message: 'Failed to choose identity into database', error: error.message });
+    }
+});
+module.exports = router;
+const jwt = require('jsonwebtoken');
+const { jwtSecret } = require('../../config');
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId  = require('../util/tokenValidator');
+const bcrypt = require('bcryptjs');
+router.get('/', (req, res) => {
+    res.send('This is the checkkey page');
+});
+router.post('/', async(req, res) => {
+    const { token, current_password, new_password } = req.body;
+    const userId = await getUserId(token);
+    bcrypt.hash(current_password, 10, (err, hashedPassword) => {
+        if (err) {
+            console.error('Error hashing password', err);
+            return res.status(500).json({ error: 'Error hashing password' });
+        }
+    db.query('SELECT * FROM users WHERE id = ?', [userId], async (error, results) => {
+        if (error) {
+            console.error('Error logging in user', error);
+            return res.status(500).json({success: false, error: 'Error logging in user' });
+        }
+        if (results.length === 0) {
+            return res.status(404).json({success: false, error: 'User not found' });
+        }
+        const user = results[0];
+        const isPasswordValid = await bcrypt.compare(hashedPassword, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({success: false, error: 'Invalid password' });
+        }
+        return res.status(200).json({success: true, message: 'success' });
+    });
+    });
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId  = require('../util/tokenValidator');
+const bcrypt = require('bcryptjs');
+router.get('/', (req, res) => {
+    res.send('This is the changekey page');
+});
+router.post('/', async (req, res) => {
+    const { token, current_password, new_password } = req.body;
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(404).json({ success: false, message: '令牌无效或过期。' });
+        }
+      const hashedPassword = await bcrypt.hash(new_password, 10);
+      db.query('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, userId], (error, result) => {
+        if (error) {
+          console.error('Error updating password', error);
+          return res.status(500).json({ success: false, error: 'Error updating password' });
+        }
+        return res.status(200).json({ success: true, message: 'Password updated successfully' });
+      });
+  });
+module.exports = router;
+const jwt = require('jsonwebtoken');
+function auth(req, res, next) {
+  const token = req.header('x-auth-token');
+  if (!token) {
+    return res.status(401).json({ msg: 'No token, authorization denied' });
+  }
+  try {
+    const decoded = jwt.verify(token, 'secretToken'); 
+    req.user = decoded.user;
+    next();
+  } catch (err) {
+    res.status(401).json({ msg: 'Token is not valid' });
+  }
+}
+module.exports = auth;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/mysql');
+router.get('/', (req, res) => {
+    db.query('SELECT * FROM articles', (error, results, fields) => {
+        if (error) {
+            console.error('Failed to query database', error);
+            res.status(500).send('Failed to query database');
+            return;
+        }
+        res.send(results);
+    });
+});
+router.post('/:articleId/likeCount', (req, res) => {
+    const articleId = req.params.articleId;
+    db.query('UPDATE articles SET likes = likes + 1 WHERE id = ?', [articleId], (error, results, fields) => {
+        if (error) {
+            console.error('Failed to update likes', error);
+            res.status(500).send('Failed to update likes');
+            return;
+        }
+        res.send('Likes updated successfully');
+    });
+});
+router.post('/:articleId/clickCount', (req, res) => {
+    const articleId = req.params.articleId;
+    db.query('UPDATE articles SET views = views + 1 WHERE id = ?', [articleId], (error, results, fields) => {
+        if (error) {
+            console.error('Failed to update views', error);
+            res.status(500).send('Failed to update views');
+            return;
+        }
+        res.send('Views updated successfully');
+    });
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/mysql');
+router.get('/',(req, res) => {
+    db.query('SELECT * FROM answer', (error, results, fields) => {
+        if (error) {
+            console.error('Failed to query database', error);
+            res.status(500).send('Failed to query database');
+            return;
+        }
+        res.send(results);
+    });
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/mysql');
+const bcrypt = require('bcrypt');
+router.get('/', (req, res) => {
+    res.send('This is the registration page');
+});
+router.post('/', (req, res) => {
+    const { username, password, phone_number } = req.body;
+    if (!username || !password || !phone_number) {
+        return res.status(400).json({ error: 'Missing required fields' });
+    }
+    bcrypt.hash(password, 10, (err, hashedPassword) => {
+        if (err) {
+            console.error('Error hashing password', err);
+            return res.status(500).json({ error: 'Error hashing password' });
+        }
+        db.query('INSERT INTO users (username, password, phone_number) VALUES (?, ?, ?)', [username, hashedPassword, phone_number], (error, results) => {
+            if (error) {
+                console.error('Error registering user', error);
+                return res.status(500).json({ error: 'Error registering user' });
+            }
+            return res.status(200).json({ message: 'User registered successfully' });
+        });
+    });
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId  = require('../util/tokenValidator');
+router.get('/', async (req, res) => {
+    try {
+        const [rankingResults] = await db.execute('SELECT userid, answerCount, rightRate FROM ranking');
+        for (const rankingRow of rankingResults) {
+            const [userResult] = await db.execute(
+                'SELECT username FROM users WHERE id = ?',
+                [rankingRow.userid]
+            );
+            if (userResult.length > 0) {
+                rankingRow.username = userResult[0].username;
+            }
+        }
+        res.json(rankingResults);
+    } catch (error) {
+        console.error('Failed to query database', error);
+        res.status(500).json({ success: false, message: 'Failed to query database', error: error.message });
+    }
+});
+router.get('/:token', async (req, res) => {
+    try {
+      const token = req.params.token;
+      const userId = await getUserId(token); 
+      const [results, fields] = await db.execute('SELECT * FROM ranking WHERE userid = ?', [userId]);
+      res.send(results);
+    } catch (error) {
+      console.error('Failed to query database', error);
+      res.status(505).send('Failed to query database');
+    }
+  });
+router.post('/', async (req, res) => {
+    const { token, rightRate: newRightRate, answerCount: newAnswerCount } = req.body;
+    if (!token || !newRightRate || !newAnswerCount) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const selectSql = 'SELECT rightRate, answerCount FROM ranking WHERE userid = ?';
+        const [rows] = await db.execute(selectSql, [userId]);
+        if (rows.length === 0) {
+            const insertrankSql = 'INSERT INTO ranking (userid, rightRate, answerCount) VALUES (?, ?, ?)';
+            const insertrankParams = [userId, newRightRate, newAnswerCount];
+            await db.execute(insertrankSql, insertrankParams);
+            return res.status(201).json({ success: true, message: '数据已成功插入。' });
+        }
+        const { rightRate: oldRightRate, answerCount: oldAnswerCount } = rows[0];
+        const updatedAnswerCount = oldAnswerCount + newAnswerCount;
+        const updatedRightRate = (oldRightRate * oldAnswerCount + newRightRate * newAnswerCount) / updatedAnswerCount;
+        const updateSql = 'UPDATE ranking SET rightRate = ?, answerCount = ? WHERE userid = ?';
+        await db.execute(updateSql, [updatedRightRate, updatedAnswerCount, userId]);
+        res.status(200).json({ success: true, message: '数据已成功更新。' });
+    } catch (error) {
+        console.error('Failed to update data in database', error);
+        res.status(500).json({ success: false, message: 'Failed to update data in database', error: error.message });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId  = require('../util/tokenValidator');
+router.get('/', async (req, res) => {
+    try {
+        const [results, fields] = await db.execute('SELECT * FROM posts');
+        res.send(results);
+    } catch (error) {
+        console.error('Failed to query database', error);
+        res.status(500).send('Failed to query database');
+    }
+});
+router.post('/', async (req, res) => {
+    const { token, content } = req.body;
+    if (!token || !content) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const insertCommentSql = 'INSERT INTO posts (userid, content) VALUES (?, ?)';
+        const insertCommentParams = [userId, content];
+        await db.execute(insertCommentSql, insertCommentParams);
+        res.status(201).json({ success: true });
+    } catch (error) {
+        console.error('Failed to insert comment into database', error);
+        res.status(500).json({ success: false, message: 'Failed to insert comment into database', error: error.message });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId = require('../util/tokenValidator');
+router.get('/', async (req, res) => {
+    try {
+        const [results] = await db.execute('SELECT * FROM postlike');
+        res.send(results);
+    } catch (error) {
+        console.error('Failed to query database', error);
+        res.status(500).send('无法获取数据');
+    }
+});
+router.post('/', async (req, res) => {
+    const { token, postid } = req.body;
+    if (!token || !postid) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const [postResults] = await db.query('SELECT likes FROM posts WHERE id = ?', [postid]);
+        if (postResults.length === 0) {
+            return res.status(404).json({ success: false, message: '帖子不存在。' });
+        }
+        const currentLikes = postResults[0].likes;
+        const newLikes = currentLikes + 1;
+        await db.query('UPDATE posts SET likes = ? WHERE id = ?', [newLikes, postid]);
+        await db.query('INSERT INTO postlike (userid, postid, liked) VALUES (?, ?, true) ON DUPLICATE KEY UPDATE liked = true', [userId, postid]);
+        res.status(201).json({ success: true });
+    } catch (error) {
+        console.error('Failed to process like', error);
+        res.status(500).json({ success: false, message: '处理失败。' });
+    }
+});
+router.post('/unlike', async (req, res) => {
+    const { token, postid } = req.body;
+    if (!token || !postid) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const [postResults] = await db.query('SELECT likes FROM posts WHERE id = ?', [postid]);
+        if (postResults.length === 0) {
+            return res.status(404).json({ success: false, message: '帖子不存在。' });
+        }
+        const currentLikes = postResults[0].likes;
+        const newLikes = Math.max(currentLikes - 1, 0);
+        await db.query('UPDATE posts SET likes = ? WHERE id = ?', [newLikes, postid]);
+        await db.query('DELETE FROM postlike WHERE userid = ? AND postid = ?', [userId, postid]);
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('Failed to process unlike', error);
+        res.status(500).json({ success: false, message: '处理失败。' });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId = require('../util/tokenValidator');
+router.get('/', async (req, res) => {
+    try {
+        const [results] = await db.execute('SELECT * FROM users');
+        res.send(results);
+    } catch (error) {
+        console.error('Failed to query database', error);
+        res.status(500).send('无法获取数据');
+    }
+});
+router.post('/', async (req, res) => {
+    const { token, point } = req.body;
+    if (!token || !point) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const [userResults] = await db.execute('SELECT point FROM users WHERE id = ?', [userId]);
+        if (userResults.length === 0) {
+            return res.status(404).json({ success: false, message: '用户不存在。' });
+        }
+        const currentPoint = userResults[0].point;
+        const newPoint = currentPoint + point;
+        const updatePointSql = 'UPDATE users SET point = ? WHERE id = ?';
+        await db.execute(updatePointSql, [newPoint, userId]);
+        res.status(201).json({ success: true });
+    } catch (error) {
+        console.error('Failed to update point in database', error);
+        res.status(500).json({ success: false });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId = require('../util/tokenValidator');
+router.get('/', async (req, res) => {
+    try {
+        const [results] = await db.execute('SELECT * FROM members');
+        res.send(results);
+    } catch (error) {
+        console.error('Failed to query database', error);
+        res.status(500).send('无法获取数据');
+    }
+});
+router.post('/', async (req, res) => {
+    const { token, groupid } = req.body;
+    if (!token || !groupid) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const insertGroupSql = 'INSERT INTO members (userid, groupid) VALUES (?, ?)';
+        const insertGroupParams = [userId, groupid];
+        await db.execute(insertGroupSql, insertGroupParams);
+        res.status(201).json({ success: true, message: '群组创建成功' });
+    } catch (error) {
+        console.error('Failed to insert group into database', error);
+        res.status(500).json({ success: false, message: '无法创建群组' });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/mysql');
+const jwt = require('jsonwebtoken');
+const { jwtSecret } = require('../../config');
+const bcrypt = require('bcryptjs');
+router.get('/', (req, res) => {
+    res.send('This is the login page');
+});
+router.post('/', (req, res) => {
+    const { username, password } = req.body;
+    db.query('SELECT * FROM users WHERE username = ?', [username], async (error, results) => {
+        if (error) {
+            console.error('Error logging in user', error);
+            return res.status(500).json({ error: 'Error logging in user' });
+        }
+        if (results.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        const user = results[0];
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ error: 'Invalid password' });
+        }
+        const token = jwt.sign({ userId: user.id }, jwtSecret, { expiresIn: '999999h' });
+        return res.status(200).json({ message: 'User logged in successfully', token });
+    });
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/mysql');
+const register = require('./register'); 
+const login = require('./login'); 
+const article = require('./article'); 
+const expand = require('./expand'); 
+const answer = require('./answer'); 
+const wrong= require('./wrong'); 
+const post= require('./posts'); 
+const comment= require('./comments'); 
+const choose= require('./choose'); 
+const ranking= require('./ranking');
+const group= require('./group');
+const member= require('./member');
+const searchGroupHistory= require('./searchgroup');
+const searcharticlehistory= require('./searcharticle');
+const getid= require('./getid');
+const point= require('./point');
+const postlike= require('./postlike');
+const click= require('./clickhistory');
+const userdetail= require('./userdetail');
+const guess= require('./guess');
+const changekey= require('./changekey');
+const checkkey= require('./checkkey');
+router.get('/', (req, res) => {
+    db.query('SELECT * FROM users', (error, results, fields) => {
+        if (error) {
+            console.error('Failed to query database', error);
+            res.status(500).send('Failed to query database');
+            return;
+        }
+        res.send(results);
+    });
+});
+router.use('/register', register);
+router.use('/login', login);
+router.use('/article', article);
+router.use('/expand', expand);
+router.use('/answer', answer);
+router.use('/wrong', wrong);
+router.use('/post', post);
+router.use('/comment', comment);
+router.use('/choose', choose);
+router.use('/ranking', ranking);
+router.use('/group', group);
+router.use('/group/member', member);
+router.use('/history/group', searchGroupHistory);
+router.use('/history/article', searcharticlehistory);
+router.use('/user/id', getid);
+router.use('/point', point);
+router.use('/postlike', postlike);
+router.use('/post/click', click);
+router.use('/user/detail', userdetail);
+router.use('/guess', guess);
+router.use('/changekey', changekey);
+router.use('/checkkey', checkkey);
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/mysql');
+router.get('/', (req, res) => {
+    db.query('SELECT * FROM guess', (error, results, fields) => {
+        if (error) {
+            console.error('Failed to query database', error);
+            res.status(500).send('Failed to query database');
+            return;
+        }
+        res.send(results);
+    });
+});
+module.exports = router;
+fetch('/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      username: 'yourusername',
+      password: 'yourpassword'
+    })
+  })
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId = require('../util/tokenValidator');
+router.get('/', async (req, res) => {
+    try {
+        const [results] = await db.execute('SELECT * FROM searcharticlehistory');
+        res.send(results);
+    } catch (error) {
+        console.error('Failed to query database', error);
+        res.status(500).send('无法获取数据');
+    }
+});
+router.post('/', async (req, res) => {
+    const { token, content } = req.body;
+    if (!token || !content) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        try {
+            const insertGroupSql = 'INSERT INTO searcharticlehistory (userid, content) VALUES (?, ?)';
+            const insertGroupParams = [userId, content];
+            await db.execute(insertGroupSql, insertGroupParams);
+            res.status(200).json({ success: true });
+        } catch (insertError) {
+            if (insertError.code === 'ER_DUP_ENTRY') {
+                const updateSql = 'UPDATE searcharticlehistory SET created_at = CURRENT_TIMESTAMP WHERE userid = ? AND content = ?';
+                await db.execute(updateSql, [userId, content]);
+                res.status(200).json({ success: true });
+            } else {
+                console.error('Failed to insert or update record', insertError);
+                res.status(500).json({ success: false });
+            }
+        }
+    } catch (error) {
+        console.error('Failed to handle request', error);
+        res.status(500).json({ success: false });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId = require('../util/tokenValidator');
+router.get('/', async (req, res) => {
+    try {
+        const [results] = await db.execute('SELECT * FROM grouplist');
+        res.send(results);
+    } catch (error) {
+        console.error('Failed to query database', error);
+        res.status(500).send('无法获取数据');
+    }
+});
+router.post('/', async (req, res) => {
+    const { token, group_name } = req.body;
+    if (!token || !group_name) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const checkGroupSql = 'SELECT COUNT(*) AS count FROM grouplist WHERE group_name = ?';
+        const [checkResults] = await db.execute(checkGroupSql, [group_name]);
+        if (checkResults[0].count > 0) {
+            return res.status(400).json({ success: false, message: '有重复群组名' });
+        }
+        const insertGroupSql = 'INSERT INTO grouplist (userid, group_name) VALUES (?, ?)';
+        const insertGroupParams = [userId, group_name];
+        await db.execute(insertGroupSql, insertGroupParams);
+        res.status(201).json({ success: true, message: '群组创建成功' });
+    } catch (error) {
+        console.error('Failed to insert group into database', error);
+        res.status(500).json({ success: false, message: '无法创建群组' });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId  = require('../util/tokenValidator');
+router.get('/', async (req, res) => {
+    try {
+        const [results, fields] = await db.execute('SELECT * FROM wrong');
+        res.send(results);
+    } catch (error) {
+        console.error('Failed to query database', error);
+        res.status(500).send('Failed to query database');
+    }
+});
+router.get('/:token', async (req, res) => {
+    try {
+      const token = req.params.token;
+      const userId = await getUserId(token); 
+      const [results, fields] = await db.execute('SELECT * FROM wrong WHERE userid = ?', [userId]);
+      res.send(results);
+    } catch (error) {
+      console.error('Failed to query database', error);
+      res.status(500).send('Failed to query database');
+    }
+  });
+router.post('/', async(req, res) => {
+    const { token,id, name, source, point, introduce, optionA, optionB, optionC, optionD, correctOption, analyse} = req.body;
+    if (!token || !id || !name ||!source || !point ||!introduce || !optionA || !optionB || !optionC ||!optionD ||!correctOption ||!analyse) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const insertWrongSql = 'INSERT INTO wrong (userid, id, name, source, point, introduce, optionA, optionB, optionC, optionD, correctOption, analyse) VALUES (?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?)';
+        const insertWrongParams = [userId, id, name, source, point, introduce, optionA, optionB, optionC, optionD, correctOption, analyse];
+        await db.execute(insertWrongSql, insertWrongParams);
+        res.status(201).json({ success: true });
+    } catch (error) {
+        console.error('Failed to insert wrong into database', error);
+        res.status(500).json({ success: false, message: 'Failed to insert wrong into database', error: error.message });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId = require('../util/tokenValidator');
+router.post('/', async (req, res) => {
+    const { token, username, text } = req.body;
+    if (!token || !username || !text) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        await db.query('UPDATE users SET text = ?, username = ? WHERE id = ?', [text, username, userId]);
+        res.status(200).json({ success: true, message: '个性签名更新成功。' });
+    } catch (error) {
+        console.error('Failed to update signature', error);
+        res.status(500).json({ success: false, message: '更新失败。', error: error.message });
+    }
+});
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const db = require('../db/pool');
+const getUserId = require('../util/tokenValidator');
+router.get('/', async (req, res) => {
+    try {
+        const [results] = await db.execute('SELECT * FROM searchGroupHistory');
+        res.send(results);
+    } catch (error) {
+        console.error('Failed to query database', error);
+        res.status(500).send('无法获取数据');
+    }
+});
+router.post('/', async (req, res) => {
+    const { token, content } = req.body;
+    if (!token || !content) {
+        return res.status(400).json({ success: false, message: '缺少必要的参数。' });
+    }
+    try {
+        const userId = await getUserId(token);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: '令牌无效或过期。' });
+        }
+        const [existingRecord] = await db.execute(
+            'SELECT id FROM searchGroupHistory WHERE userid = ? AND content = ?',
+            [userId, content]
+        );
+        if (existingRecord.length > 0) {
+            const updateSql = 'UPDATE searchGroupHistory SET created_at = CURRENT_TIMESTAMP WHERE id = ?';
+            await db.execute(updateSql, [existingRecord[0].id]);
+        } else {
+            const insertGroupSql = 'INSERT INTO searchGroupHistory (userid, content) VALUES (?, ?)';
+            const insertGroupParams = [userId, content];
+            await db.execute(insertGroupSql, insertGroupParams);
+        }
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('Failed to handle request', error);
+        res.status(500).json({ success: false });
+    }
+});
+module.exports = router;
